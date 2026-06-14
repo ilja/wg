@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -145,6 +146,90 @@ func TestPathAndEnvStdoutDataContracts(t *testing.T) {
 			t.Fatalf("expected candidates on stderr, got %q", stderr.String())
 		}
 	})
+}
+
+func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
+	fg := newFakeGit()
+	var firstStdout, firstStderr bytes.Buffer
+	firstCode := cli.Run(context.Background(), []string{"env"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha/subdir",
+		Stdout:    &firstStdout,
+		Stderr:    &firstStderr,
+		GitRunner: fg,
+	})
+	if firstCode != 0 {
+		t.Fatalf("expected first env success, code=%d stderr=%q", firstCode, firstStderr.String())
+	}
+
+	fg = newFakeGit()
+	var secondStdout, secondStderr bytes.Buffer
+	secondCode := cli.Run(context.Background(), []string{"env"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha/subdir",
+		Stdout:    &secondStdout,
+		Stderr:    &secondStderr,
+		GitRunner: fg,
+	})
+	if secondCode != 0 {
+		t.Fatalf("expected second env success, code=%d stderr=%q", secondCode, secondStderr.String())
+	}
+	if firstStdout.String() != secondStdout.String() {
+		t.Fatalf("expected repeated env output to be byte-for-byte stable\nfirst:\n%s\nsecond:\n%s", firstStdout.String(), secondStdout.String())
+	}
+
+	lines := strings.Split(strings.TrimSpace(firstStdout.String()), "\n")
+	wantKeys := []string{
+		"WG_BRANCH",
+		"WG_WORKTREE_PATH",
+		"WG_WORKTREE_NAME",
+		"WG_REPO",
+		"WG_REPO_PATH",
+		"WG_PRIMARY_WORKTREE_PATH",
+		"WG_DEFAULT_BRANCH",
+		"WG_BASE",
+		"WG_PORT",
+	}
+	if len(lines) != len(wantKeys) {
+		t.Fatalf("expected %d env lines, got %d: %#v", len(wantKeys), len(lines), lines)
+	}
+	values := make(map[string]string)
+	for i, line := range lines {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatalf("invalid env line %q", line)
+		}
+		if key != wantKeys[i] {
+			t.Fatalf("env key order mismatch at %d: want %s got %s", i, wantKeys[i], key)
+		}
+		values[key] = value
+	}
+	if values["WG_WORKTREE_PATH"] != "/repo/demo.feature-alpha" || values["WG_WORKTREE_NAME"] != "feature-alpha" {
+		t.Fatalf("unexpected current worktree env values: %#v", values)
+	}
+	if lines[7] != "WG_BASE=" {
+		t.Fatalf("existing worktree should render exactly WG_BASE=, got %q", lines[7])
+	}
+	port, err := strconv.Atoi(values["WG_PORT"])
+	if err != nil || port < 10000 || port > 19999 {
+		t.Fatalf("expected stable WG_PORT in range, got %q", values["WG_PORT"])
+	}
+
+	fg = newFakeGit()
+	var namedStdout, namedStderr bytes.Buffer
+	namedCode := cli.Run(context.Background(), []string{"env", "feature-beta"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha/subdir",
+		Stdout:    &namedStdout,
+		Stderr:    &namedStderr,
+		GitRunner: fg,
+	})
+	if namedCode != 0 {
+		t.Fatalf("expected named env success, code=%d stderr=%q", namedCode, namedStderr.String())
+	}
+	if !strings.Contains(namedStdout.String(), "WG_WORKTREE_PATH=/repo/demo.feature-beta\n") {
+		t.Fatalf("expected named worktree path in env output, got:\n%s", namedStdout.String())
+	}
+	if !strings.Contains(namedStdout.String(), "WG_BASE=\n") {
+		t.Fatalf("expected named existing worktree to render empty base, got:\n%s", namedStdout.String())
+	}
 }
 
 func newFakeGit() *fakeGit {

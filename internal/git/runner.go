@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 type Result struct {
@@ -51,4 +54,86 @@ func (r ExecRunner) Run(ctx context.Context, dir string, args ...string) (Result
 
 	result.ExitCode = 1
 	return result, err
+}
+
+func (r ExecRunner) TrackedPaths(ctx context.Context, root string, rels []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{})
+	if len(rels) == 0 {
+		return out, nil
+	}
+	args := append([]string{"ls-files", "-z", "--cached", "--"}, rels...)
+	result, err := r.Run(ctx, root, args...)
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("git ls-files failed: %s", strings.TrimSpace(result.Stderr))
+	}
+	return parseNULPaths(result.Stdout), nil
+}
+
+func (r ExecRunner) IgnoredPaths(ctx context.Context, root string, rels []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{})
+	if len(rels) == 0 {
+		return out, nil
+	}
+
+	binary := r.Binary
+	if binary == "" {
+		binary = "git"
+	}
+	cmd := exec.CommandContext(ctx, binary, "check-ignore", "-z", "--stdin")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(strings.Join(rels, "\x00") + "\x00")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return parseNULPaths(stdout.String()), nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if exitErr.ExitCode() == 1 {
+			return out, nil
+		}
+		return nil, fmt.Errorf("git check-ignore failed: %s", strings.TrimSpace(stderr.String()))
+	}
+	return nil, err
+}
+
+func (r ExecRunner) NestedWorktreePaths(ctx context.Context, root string) (map[string]struct{}, error) {
+	out := make(map[string]struct{})
+	root = filepath.Clean(root)
+	result, err := r.Run(ctx, root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("git worktree list --porcelain failed: %s", strings.TrimSpace(result.Stderr))
+	}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		pathValue, ok := strings.CutPrefix(line, "worktree ")
+		if !ok {
+			continue
+		}
+		worktreePath := filepath.Clean(pathValue)
+		rel, err := filepath.Rel(root, worktreePath)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			continue
+		}
+		out[worktreePath] = struct{}{}
+	}
+	return out, nil
+}
+
+func parseNULPaths(output string) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, value := range strings.Split(output, "\x00") {
+		if value == "" {
+			continue
+		}
+		out[filepath.ToSlash(value)] = struct{}{}
+	}
+	return out
 }

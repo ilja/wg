@@ -10,6 +10,8 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"wg/internal/app"
+	"wg/internal/copyignored"
 	wgenv "wg/internal/env"
 	"wg/internal/git"
 	"wg/internal/resolve"
@@ -30,12 +32,13 @@ type Options struct {
 }
 
 type rootCmd struct {
-	List   listCmd   `cmd:"" help:"List worktrees."`
-	Path   pathCmd   `cmd:"" help:"Print a worktree path."`
-	Env    envCmd    `cmd:"" help:"Print worktree environment context."`
-	Switch SwitchCmd `cmd:"" help:"Select a worktree."`
-	New    NewCmd    `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
-	Config ConfigCmd `cmd:"" help:"Print configuration helpers."`
+	List        listCmd        `cmd:"" help:"List worktrees."`
+	Path        pathCmd        `cmd:"" help:"Print a worktree path."`
+	Env         envCmd         `cmd:"" help:"Print worktree environment context."`
+	Switch      SwitchCmd      `cmd:"" help:"Select a worktree."`
+	New         NewCmd         `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
+	CopyIgnored CopyIgnoredCmd `cmd:"" name:"copy-ignored" help:"Copy allowlisted ignored files between worktrees."`
+	Config      ConfigCmd      `cmd:"" help:"Print configuration helpers."`
 }
 
 type listCmd struct{}
@@ -56,6 +59,13 @@ type SwitchCmd struct {
 type NewCmd struct {
 	Branch string `arg:"" name:"branch" help:"Branch to create."`
 	Base   string `arg:"" optional:"" name:"base" help:"Optional base commit, branch, or ref."`
+}
+
+type CopyIgnoredCmd struct {
+	From   string `name:"from" help:"Source worktree name, branch, basename, or unique prefix."`
+	To     string `name:"to" help:"Destination worktree name, branch, basename, or unique prefix."`
+	Force  bool   `name:"force" help:"Overwrite existing destination files."`
+	DryRun bool   `name:"dry-run" help:"Print planned copy actions without writing files."`
 }
 
 type runtime struct {
@@ -234,6 +244,39 @@ func (c *NewCmd) Run(rt *runtime) error {
 	return err
 }
 
+func (c *CopyIgnoredCmd) Run(rt *runtime) error {
+	application := app.App{Cwd: rt.cwd, Environ: rt.environ, GitRunner: rt.gitRunner}
+	result, err := application.CopyIgnored(rt.ctx, app.CopyIgnoredOptions{
+		From:   c.From,
+		To:     c.To,
+		Force:  c.Force,
+		DryRun: c.DryRun,
+	})
+	if err != nil {
+		return err
+	}
+
+	if c.DryRun {
+		for _, entry := range result.Plan.Entries {
+			_, _ = fmt.Fprintf(rt.stdout, "%s %s\n", entry.Action, entry.RelPath)
+		}
+		if len(result.Plan.Entries) == 0 {
+			writeNoop(rt.stderr, result.Plan.NoopReason)
+			return nil
+		}
+		copyCount, skipCount := countPlanActions(result.Plan.Entries)
+		_, _ = fmt.Fprintf(rt.stderr, "dry-run: %d planned, copied %d, skipped %d\n", len(result.Plan.Entries), copyCount, skipCount)
+		return nil
+	}
+
+	if len(result.Plan.Entries) == 0 {
+		writeNoop(rt.stderr, result.Plan.NoopReason)
+		return nil
+	}
+	_, _ = fmt.Fprintf(rt.stderr, "copied %d, skipped %d\n", result.Result.Copied, result.Result.Skipped)
+	return nil
+}
+
 func (rt *runtime) loadRepository() (worktree.Repository, error) {
 	return worktree.LoadRepository(rt.ctx, rt.gitRunner, rt.cwd)
 }
@@ -273,6 +316,27 @@ func pickerOptions(entries []worktree.Entry) []tui.PickerOption {
 		})
 	}
 	return options
+}
+
+func countPlanActions(entries []copyignored.Entry) (int, int) {
+	copyCount := 0
+	skipCount := 0
+	for _, entry := range entries {
+		switch entry.Action {
+		case copyignored.ActionCopy:
+			copyCount++
+		case copyignored.ActionSkipExisting:
+			skipCount++
+		}
+	}
+	return copyCount, skipCount
+}
+
+func writeNoop(stderr io.Writer, reason string) {
+	if reason == "" {
+		reason = "no ignored allowlisted files to copy"
+	}
+	_, _ = fmt.Fprintln(stderr, reason)
 }
 
 func writeDiagnostic(stderr io.Writer, err error) {
