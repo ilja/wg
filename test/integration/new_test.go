@@ -52,7 +52,6 @@ func TestNewExplicitBaseCreatesSanitizedSiblingAndRunsSetup(t *testing.T) {
 		"WG_WORKTREE_PATH":         wantPath,
 		"WG_WORKTREE_NAME":         name,
 		"WG_REPO":                  "demo",
-		"WG_REPO_PATH":             repo,
 		"WG_PRIMARY_WORKTREE_PATH": repo,
 		"WG_DEFAULT_BRANCH":        "setup-base",
 		"WG_BASE":                  "setup-base",

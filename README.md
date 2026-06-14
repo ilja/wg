@@ -71,8 +71,7 @@ The setup script receives these values:
 | `WG_WORKTREE_PATH`         | `/Users/<user>/work/demo.feature-add-search` | New worktree path.                                |
 | `WG_WORKTREE_NAME`         | `feature-add-search`                         | Sanitized worktree name.                          |
 | `WG_REPO`                  | `demo`                                       | Repository name.                                  |
-| `WG_REPO_PATH`             | `/Users/<user>/work/demo`                    | Primary worktree path.                            |
-| `WG_PRIMARY_WORKTREE_PATH` | `/Users/<user>/work/demo`                    | Same primary worktree path, explicit for scripts. |
+| `WG_PRIMARY_WORKTREE_PATH` | `/Users/<user>/work/demo`                    | Primary worktree path, useful as the setup source. |
 | `WG_DEFAULT_BRANCH`        | `main`                                       | Resolved default branch.                          |
 | `WG_BASE`                  | `main`                                       | Base passed or resolved for `wg new`.             |
 | `WG_PORT`                  | `14832`                                      | Stable port derived from the worktree path.       |

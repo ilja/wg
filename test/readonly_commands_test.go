@@ -101,8 +101,8 @@ func TestReadOnlyCommands(t *testing.T) {
 		if values["WG_WORKTREE_PATH"] != alphaPath {
 			t.Fatalf("expected WG_WORKTREE_PATH %q, got %q", alphaPath, values["WG_WORKTREE_PATH"])
 		}
-		if values["WG_REPO_PATH"] != repo || values["WG_PRIMARY_WORKTREE_PATH"] != repo {
-			t.Fatalf("expected primary repo path %q, got WG_REPO_PATH=%q WG_PRIMARY_WORKTREE_PATH=%q", repo, values["WG_REPO_PATH"], values["WG_PRIMARY_WORKTREE_PATH"])
+		if values["WG_PRIMARY_WORKTREE_PATH"] != repo {
+			t.Fatalf("expected primary worktree path %q, got %q", repo, values["WG_PRIMARY_WORKTREE_PATH"])
 		}
 		if values["WG_DEFAULT_BRANCH"] != "main" {
 			t.Fatalf("expected WG_DEFAULT_BRANCH main, got %q", values["WG_DEFAULT_BRANCH"])

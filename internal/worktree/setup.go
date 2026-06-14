@@ -17,7 +17,6 @@ type SetupContext struct {
 	WorktreePath        string
 	WorktreeName        string
 	Repo                string
-	RepoPath            string
 	PrimaryWorktreePath string
 	DefaultBranch       string
 	Base                string
@@ -38,7 +37,6 @@ func BuildSetupContext(plan NewPlan) SetupContext {
 		WorktreePath:        plan.WorktreePath,
 		WorktreeName:        plan.WorktreeName,
 		Repo:                filepath.Base(plan.Repository.Primary.Path),
-		RepoPath:            plan.Repository.Primary.Path,
 		PrimaryWorktreePath: plan.Repository.Primary.Path,
 		DefaultBranch:       plan.DefaultBranch.Name,
 		Base:                plan.Base,
@@ -59,7 +57,6 @@ func (c SetupContext) Env(base []string) []string {
 		"WG_WORKTREE_PATH="+c.WorktreePath,
 		"WG_WORKTREE_NAME="+c.WorktreeName,
 		"WG_REPO="+c.Repo,
-		"WG_REPO_PATH="+c.RepoPath,
 		"WG_PRIMARY_WORKTREE_PATH="+c.PrimaryWorktreePath,
 		"WG_DEFAULT_BRANCH="+c.DefaultBranch,
 		"WG_BASE="+c.Base,

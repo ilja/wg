@@ -13,7 +13,6 @@ type Context struct {
 	WorktreePath        string
 	WorktreeName        string
 	Repo                string
-	RepoPath            string
 	PrimaryWorktreePath string
 	DefaultBranch       string
 	Base                string
@@ -39,7 +38,6 @@ func BuildContext(repo worktree.Repository, target worktree.Entry, defaultBranch
 		WorktreePath:        target.Path,
 		WorktreeName:        worktreeName,
 		Repo:                filepath.Base(repoPath),
-		RepoPath:            repoPath,
 		PrimaryWorktreePath: repoPath,
 		DefaultBranch:       defaultBranch,
 		Base:                base,
@@ -53,7 +51,6 @@ func Render(ctx Context) []string {
 		"WG_WORKTREE_PATH=" + ctx.WorktreePath,
 		"WG_WORKTREE_NAME=" + ctx.WorktreeName,
 		"WG_REPO=" + ctx.Repo,
-		"WG_REPO_PATH=" + ctx.RepoPath,
 		"WG_PRIMARY_WORKTREE_PATH=" + ctx.PrimaryWorktreePath,
 		"WG_DEFAULT_BRANCH=" + ctx.DefaultBranch,
 		"WG_BASE=" + ctx.Base,

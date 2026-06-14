@@ -42,7 +42,7 @@ func TestBuildContextAndRender(t *testing.T) {
 	if ctx.Branch != "feature-alpha" || ctx.WorktreePath != "/repo/demo.feature-alpha" || ctx.WorktreeName != "feature-alpha" {
 		t.Fatalf("unexpected worktree context: %#v", ctx)
 	}
-	if ctx.Repo != "demo" || ctx.RepoPath != "/repo/demo" || ctx.PrimaryWorktreePath != "/repo/demo" {
+	if ctx.Repo != "demo" || ctx.PrimaryWorktreePath != "/repo/demo" {
 		t.Fatalf("unexpected repo context: %#v", ctx)
 	}
 	if ctx.DefaultBranch != "main" || ctx.Base != "" {
@@ -55,7 +55,6 @@ func TestBuildContextAndRender(t *testing.T) {
 		"WG_WORKTREE_PATH",
 		"WG_WORKTREE_NAME",
 		"WG_REPO",
-		"WG_REPO_PATH",
 		"WG_PRIMARY_WORKTREE_PATH",
 		"WG_DEFAULT_BRANCH",
 		"WG_BASE",
@@ -77,7 +76,7 @@ func TestBuildContextAndRender(t *testing.T) {
 	if values["WG_BRANCH"] != "feature-alpha" || values["WG_WORKTREE_PATH"] != "/repo/demo.feature-alpha" || values["WG_WORKTREE_NAME"] != "feature-alpha" {
 		t.Fatalf("unexpected rendered worktree values: %#v", values)
 	}
-	if values["WG_REPO"] != "demo" || values["WG_REPO_PATH"] != "/repo/demo" || values["WG_PRIMARY_WORKTREE_PATH"] != "/repo/demo" {
+	if values["WG_REPO"] != "demo" || values["WG_PRIMARY_WORKTREE_PATH"] != "/repo/demo" {
 		t.Fatalf("unexpected rendered repo values: %#v", values)
 	}
 	if values["WG_DEFAULT_BRANCH"] != "main" || values["WG_BASE"] != "" {

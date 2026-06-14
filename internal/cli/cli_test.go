@@ -208,7 +208,6 @@ func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
 		"WG_WORKTREE_PATH",
 		"WG_WORKTREE_NAME",
 		"WG_REPO",
-		"WG_REPO_PATH",
 		"WG_PRIMARY_WORKTREE_PATH",
 		"WG_DEFAULT_BRANCH",
 		"WG_BASE",
@@ -234,8 +233,8 @@ func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
 	if values["WG_DEFAULT_BRANCH"] != "main" {
 		t.Fatalf("expected default branch main, got %q", values["WG_DEFAULT_BRANCH"])
 	}
-	if lines[7] != "WG_BASE=" {
-		t.Fatalf("existing worktree should render exactly WG_BASE=, got %q", lines[7])
+	if lines[6] != "WG_BASE=" {
+		t.Fatalf("existing worktree should render exactly WG_BASE=, got %q", lines[6])
 	}
 	port, err := strconv.Atoi(values["WG_PORT"])
 	if err != nil || port < 10000 || port > 19999 {
