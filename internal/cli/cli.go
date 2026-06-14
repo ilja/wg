@@ -239,7 +239,8 @@ func (c *SwitchCmd) Run(rt *runtime) error {
 			return err
 		}
 	} else {
-		option, err := rt.picker(rt.ctx, pickerOptions(repo.Entries), rt.stdin, rt.stderr)
+		integratedBranches := switchIntegratedBranches(rt.ctx, rt.gitRunner, repo)
+		option, err := rt.picker(rt.ctx, pickerOptions(repo.Entries, integratedBranches), rt.stdin, rt.stderr)
 		if err != nil {
 			return err
 		}
@@ -342,16 +343,83 @@ func entryState(entry worktree.Entry) string {
 	}
 }
 
-func pickerOptions(entries []worktree.Entry) []tui.PickerOption {
+func pickerOptions(entries []worktree.Entry, integratedBranches map[string]struct{}) []tui.PickerOption {
 	options := make([]tui.PickerOption, 0, len(entries))
 	for _, entry := range entries {
 		options = append(options, tui.PickerOption{
-			Label:  entry.DisplayName,
-			Branch: entry.Branch,
-			Path:   entry.Path,
+			Label:      entry.DisplayName,
+			Branch:     entry.Branch,
+			Path:       entry.Path,
+			Integrated: entryCanBeMuted(entry) && branchIsIntegrated(entry.Branch, integratedBranches),
 		})
 	}
 	return options
+}
+
+func switchIntegratedBranches(ctx context.Context, runner git.Runner, repo worktree.Repository) map[string]struct{} {
+	defaultBranch, ok := switchDefaultBranch(ctx, runner, repo)
+	if !ok {
+		return nil
+	}
+
+	result, err := runner.Run(ctx, repo.Primary.Path, "for-each-ref", "--format=%(refname:short)", "--merged="+defaultBranch, "refs/heads")
+	if err != nil || result.ExitCode != 0 {
+		return nil
+	}
+
+	integratedBranches := make(map[string]struct{})
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		branch := strings.TrimSpace(line)
+		if branch == "" || branch == repo.Primary.Branch || branchMatchesDefault(branch, defaultBranch) {
+			continue
+		}
+		integratedBranches[branch] = struct{}{}
+	}
+	return integratedBranches
+}
+
+func switchDefaultBranch(ctx context.Context, runner git.Runner, repo worktree.Repository) (string, bool) {
+	result, err := runner.Run(ctx, repo.Primary.Path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", false
+	}
+	if result.ExitCode == 0 {
+		branch := strings.TrimSpace(result.Stdout)
+		return branch, branch != ""
+	}
+
+	if repo.Primary.Branch == "main" || repo.Primary.Branch == "master" {
+		return repo.Primary.Branch, true
+	}
+
+	hasMain := switchLocalBranchExists(ctx, runner, repo, "main")
+	hasMaster := switchLocalBranchExists(ctx, runner, repo, "master")
+	switch {
+	case hasMain && !hasMaster:
+		return "main", true
+	case hasMaster && !hasMain:
+		return "master", true
+	default:
+		return "", false
+	}
+}
+
+func switchLocalBranchExists(ctx context.Context, runner git.Runner, repo worktree.Repository, branch string) bool {
+	result, err := runner.Run(ctx, repo.Primary.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil && result.ExitCode == 0
+}
+
+func entryCanBeMuted(entry worktree.Entry) bool {
+	return entry.Branch != "" && !entry.IsPrimary && !entry.IsDetached
+}
+
+func branchIsIntegrated(branch string, integratedBranches map[string]struct{}) bool {
+	_, ok := integratedBranches[branch]
+	return ok
+}
+
+func branchMatchesDefault(branch string, defaultBranch string) bool {
+	return branch == defaultBranch || branch == strings.TrimPrefix(defaultBranch, "origin/")
 }
 
 func countPlanActions(entries []copyignored.Entry) (int, int) {

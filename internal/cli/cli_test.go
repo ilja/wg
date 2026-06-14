@@ -18,9 +18,10 @@ type gitCall struct {
 }
 
 type fakeGit struct {
-	top       string
-	porcelain string
-	calls     []gitCall
+	top            string
+	porcelain      string
+	mergedBranches string
+	calls          []gitCall
 }
 
 func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (git.Result, error) {
@@ -30,6 +31,8 @@ func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (git.Resu
 		return git.Result{Stdout: f.top + "\n", ExitCode: 0}, nil
 	case "worktree list --porcelain":
 		return git.Result{Stdout: f.porcelain, ExitCode: 0}, nil
+	case "for-each-ref --format=%(refname:short) --merged=main refs/heads":
+		return git.Result{Stdout: f.mergedBranches, ExitCode: 0}, nil
 	default:
 		return git.Result{Stderr: "unexpected git command", ExitCode: 1}, nil
 	}
@@ -262,7 +265,8 @@ func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
 
 func newFakeGit() *fakeGit {
 	return &fakeGit{
-		top: "/repo/demo.feature-alpha",
+		top:            "/repo/demo.feature-alpha",
+		mergedBranches: "main\n",
 		porcelain: strings.Join([]string{
 			"worktree /repo/demo",
 			"HEAD 1111111111111111111111111111111111111111",

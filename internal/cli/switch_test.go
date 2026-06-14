@@ -100,6 +100,42 @@ func TestSwitchPathOutputWithoutReferenceUsesInjectedPicker(t *testing.T) {
 	}
 }
 
+func TestSwitchPickerMarksMergedBranchesAsIntegrated(t *testing.T) {
+	var pickerOptions []tui.PickerOption
+	picker := func(ctx context.Context, options []tui.PickerOption, input io.Reader, output io.Writer) (tui.PickerOption, error) {
+		pickerOptions = append([]tui.PickerOption(nil), options...)
+		return tui.PickerOption{Label: "feature-beta", Branch: "feature-beta", Path: "/repo/demo.feature-beta"}, nil
+	}
+
+	fg := newFakeGit()
+	fg.mergedBranches = "main\nfeature-alpha\n"
+	var stdout, stderr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"switch", "--path-output"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		GitRunner: fg,
+		Picker:    cli.PickerFunc(picker),
+	})
+	if code != 0 {
+		t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+	}
+	if pickerOptions[0].Integrated {
+		t.Fatalf("expected primary/default branch not to be marked integrated: %#v", pickerOptions)
+	}
+	if !pickerOptions[1].Integrated {
+		t.Fatalf("expected merged feature branch to be marked integrated: %#v", pickerOptions)
+	}
+	if pickerOptions[2].Integrated {
+		t.Fatalf("expected unmerged feature branch not to be marked integrated: %#v", pickerOptions)
+	}
+	for _, call := range fg.calls {
+		if strings.Join(call.Args, " ") == "ls-remote --symref origin HEAD" {
+			t.Fatalf("expected switch merged-status lookup to avoid network-capable ls-remote call; calls: %#v", fg.calls)
+		}
+	}
+}
+
 func TestSwitchPathOutputPickerCancellationDiagnosesOnStderr(t *testing.T) {
 	picker := func(ctx context.Context, options []tui.PickerOption, input io.Reader, output io.Writer) (tui.PickerOption, error) {
 		return tui.PickerOption{}, tui.ErrPickerCancelled

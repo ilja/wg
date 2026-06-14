@@ -14,9 +14,10 @@ import (
 var ErrPickerCancelled = errors.New("picker cancelled")
 
 type PickerOption struct {
-	Label  string
-	Branch string
-	Path   string
+	Label      string
+	Branch     string
+	Path       string
+	Integrated bool
 }
 
 func RunPicker(ctx context.Context, options []PickerOption, input io.Reader, output io.Writer) (PickerOption, error) {
@@ -96,7 +97,11 @@ func (m pickerModel) View() tea.View {
 
 	builder.WriteString("Select worktree:\n")
 	for i, option := range m.options {
-		row := labelStyle.Render(displayLabel(option)) + "  " + mutedStyle.Render(option.Path)
+		label := labelStyle.Render(displayLabel(option))
+		if option.Integrated {
+			label = mutedStyle.Render(label)
+		}
+		row := label + "  " + mutedStyle.Render(option.Path)
 		if i == m.selectedIndex {
 			row = selectedStyle.Render("> " + row)
 		} else {

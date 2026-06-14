@@ -81,6 +81,16 @@ func TestPickerViewAlignsPathsInASecondColumn(t *testing.T) {
 	}
 }
 
+func TestPickerViewMutesIntegratedLabels(t *testing.T) {
+	options := testPickerOptions()
+	options[1].Integrated = true
+	view := newPickerModel(options).View().Content
+
+	if !strings.Contains(view, "\x1b[2mfeature-alpha") {
+		t.Fatalf("expected integrated label to be faint, got:\n%s", view)
+	}
+}
+
 func TestPickerCancellationReturnsErrorWithNoSelectedPath(t *testing.T) {
 	for _, keyMsg := range []tea.KeyPressMsg{key(0, "q"), keyCtrlC()} {
 		t.Run(keyMsg.String(), func(t *testing.T) {
