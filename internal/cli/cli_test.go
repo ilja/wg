@@ -1,0 +1,176 @@
+package cli_test
+
+import (
+	"bytes"
+	"context"
+	"reflect"
+	"strings"
+	"testing"
+
+	"wg/internal/cli"
+	"wg/internal/git"
+)
+
+type gitCall struct {
+	Dir  string
+	Args []string
+}
+
+type fakeGit struct {
+	top       string
+	porcelain string
+	calls     []gitCall
+}
+
+func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (git.Result, error) {
+	f.calls = append(f.calls, gitCall{Dir: dir, Args: append([]string(nil), args...)})
+	switch strings.Join(args, " ") {
+	case "rev-parse --show-toplevel":
+		return git.Result{Stdout: f.top + "\n", ExitCode: 0}, nil
+	case "worktree list --porcelain":
+		return git.Result{Stdout: f.porcelain, ExitCode: 0}, nil
+	default:
+		return git.Result{Stderr: "unexpected git command", ExitCode: 1}, nil
+	}
+}
+
+func TestReadOnlyCommandsUseOnlyFastMetadataGitCalls(t *testing.T) {
+	for _, args := range [][]string{{"list"}, {"path", "feature-alpha"}, {"env"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			fg := newFakeGit()
+			var stdout, stderr bytes.Buffer
+			code := cli.Run(context.Background(), args, cli.Options{
+				Cwd:       "/repo/demo.feature-alpha/subdir",
+				Stdout:    &stdout,
+				Stderr:    &stderr,
+				GitRunner: fg,
+			})
+			if code != 0 {
+				t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+			}
+			want := [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}}
+			if got := callArgs(fg.calls); !reflect.DeepEqual(got, want) {
+				t.Fatalf("git calls mismatch\nwant: %#v\n got: %#v", want, got)
+			}
+			forbidden := []string{"status", "url", "port", "ci", "summary"}
+			for _, call := range fg.calls {
+				joined := strings.ToLower(strings.Join(call.Args, " "))
+				for _, word := range forbidden {
+					if strings.Contains(joined, word) {
+						t.Fatalf("read-only command used forbidden probe %q in git call %v", word, call.Args)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPathAndEnvStdoutDataContracts(t *testing.T) {
+	t.Run("path success writes only data to stdout", func(t *testing.T) {
+		fg := newFakeGit()
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"path", "feature-alpha"}, cli.Options{
+			Cwd:       "/repo/demo.feature-alpha",
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+			GitRunner: fg,
+		})
+		if code != 0 {
+			t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+		}
+		if stdout.String() != "/repo/demo.feature-alpha\n" {
+			t.Fatalf("unexpected stdout %q", stdout.String())
+		}
+		if stderr.String() != "" {
+			t.Fatalf("expected empty stderr, got %q", stderr.String())
+		}
+	})
+
+	t.Run("env success writes only data to stdout", func(t *testing.T) {
+		fg := newFakeGit()
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"env", "feature-beta"}, cli.Options{
+			Cwd:       "/repo/demo.feature-alpha",
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+			GitRunner: fg,
+		})
+		if code != 0 {
+			t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "WG_WORKTREE_PATH=/repo/demo.feature-beta\n") {
+			t.Fatalf("env stdout missing target path:\n%s", stdout.String())
+		}
+		if stderr.String() != "" {
+			t.Fatalf("expected empty stderr, got %q", stderr.String())
+		}
+	})
+
+	t.Run("missing names diagnose only on stderr", func(t *testing.T) {
+		fg := newFakeGit()
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"path", "missing"}, cli.Options{
+			Cwd:       "/repo/demo.feature-alpha",
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+			GitRunner: fg,
+		})
+		if code == 0 {
+			t.Fatalf("expected missing path to fail")
+		}
+		if stdout.String() != "" {
+			t.Fatalf("expected empty stdout, got %q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "missing") {
+			t.Fatalf("expected missing diagnostic on stderr, got %q", stderr.String())
+		}
+	})
+
+	t.Run("ambiguous names diagnose only on stderr with candidates", func(t *testing.T) {
+		fg := newFakeGit()
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), []string{"env", "feature"}, cli.Options{
+			Cwd:       "/repo/demo.feature-alpha",
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+			GitRunner: fg,
+		})
+		if code == 0 {
+			t.Fatalf("expected ambiguity to fail")
+		}
+		if stdout.String() != "" {
+			t.Fatalf("expected empty stdout, got %q", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "feature-alpha") || !strings.Contains(stderr.String(), "feature-beta") {
+			t.Fatalf("expected candidates on stderr, got %q", stderr.String())
+		}
+	})
+}
+
+func newFakeGit() *fakeGit {
+	return &fakeGit{
+		top: "/repo/demo.feature-alpha",
+		porcelain: strings.Join([]string{
+			"worktree /repo/demo",
+			"HEAD 1111111111111111111111111111111111111111",
+			"branch refs/heads/main",
+			"",
+			"worktree /repo/demo.feature-alpha",
+			"HEAD 2222222222222222222222222222222222222222",
+			"branch refs/heads/feature-alpha",
+			"",
+			"worktree /repo/demo.feature-beta",
+			"HEAD 3333333333333333333333333333333333333333",
+			"branch refs/heads/feature-beta",
+			"",
+		}, "\n"),
+	}
+}
+
+func callArgs(calls []gitCall) [][]string {
+	out := make([][]string, 0, len(calls))
+	for _, call := range calls {
+		out = append(out, call.Args)
+	}
+	return out
+}

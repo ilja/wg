@@ -1,0 +1,220 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/alecthomas/kong"
+
+	wgenv "wg/internal/env"
+	"wg/internal/git"
+	"wg/internal/resolve"
+	"wg/internal/worktree"
+)
+
+type Options struct {
+	Cwd       string
+	Stdin     io.Reader
+	Stdout    io.Writer
+	Stderr    io.Writer
+	Environ   []string
+	GitRunner git.Runner
+}
+
+type rootCmd struct {
+	List listCmd `cmd:"" help:"List worktrees."`
+	Path pathCmd `cmd:"" help:"Print a worktree path."`
+	Env  envCmd  `cmd:"" help:"Print worktree environment context."`
+}
+
+type listCmd struct{}
+
+type pathCmd struct {
+	Name string `arg:"" name:"name" help:"Worktree name, branch, basename, or unique prefix."`
+}
+
+type envCmd struct {
+	Name string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix."`
+}
+
+type runtime struct {
+	ctx       context.Context
+	cwd       string
+	stdin     io.Reader
+	stdout    io.Writer
+	stderr    io.Writer
+	environ   []string
+	gitRunner git.Runner
+}
+
+func Run(ctx context.Context, args []string, opts Options) int {
+	rt, err := newRuntime(ctx, opts)
+	if err != nil {
+		_, _ = fmt.Fprintln(opts.Stderr, err)
+		return 1
+	}
+
+	var root rootCmd
+	parser, err := kong.New(&root,
+		kong.Name("wg"),
+		kong.Description("Fast Git worktree manager."),
+		kong.Writers(rt.stdout, rt.stderr),
+	)
+	if err != nil {
+		_, _ = fmt.Fprintln(rt.stderr, err)
+		return 1
+	}
+
+	parsed, err := parser.Parse(args)
+	if err != nil {
+		_, _ = fmt.Fprintln(rt.stderr, err)
+		return 2
+	}
+
+	if err := parsed.Run(rt); err != nil {
+		writeDiagnostic(rt.stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func newRuntime(ctx context.Context, opts Options) (*runtime, error) {
+	cwd := opts.Cwd
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+	}
+	stdin := opts.Stdin
+	if stdin == nil {
+		stdin = strings.NewReader("")
+	}
+	stdout := opts.Stdout
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	runner := opts.GitRunner
+	if runner == nil {
+		runner = git.ExecRunner{Binary: "git"}
+	}
+
+	return &runtime{
+		ctx:       ctx,
+		cwd:       cwd,
+		stdin:     stdin,
+		stdout:    stdout,
+		stderr:    stderr,
+		environ:   opts.Environ,
+		gitRunner: runner,
+	}, nil
+}
+
+func (c *listCmd) Run(rt *runtime) error {
+	repo, err := rt.loadRepository()
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range repo.Entries {
+		marker := " "
+		if entry.IsCurrent {
+			marker = "*"
+		}
+		_, _ = fmt.Fprintf(rt.stdout, "%s %s %s %s\n", marker, entry.DisplayName, entryState(entry), entry.Path)
+	}
+	return nil
+}
+
+func (c *pathCmd) Run(rt *runtime) error {
+	repo, err := rt.loadRepository()
+	if err != nil {
+		return err
+	}
+	entry, err := resolve.Resolve(repo.Entries, c.Name)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(rt.stdout, entry.Path)
+	return nil
+}
+
+func (c *envCmd) Run(rt *runtime) error {
+	repo, err := rt.loadRepository()
+	if err != nil {
+		return err
+	}
+
+	var target worktree.Entry
+	if c.Name == "" {
+		var ok bool
+		target, ok = currentEntry(repo.Entries)
+		if !ok {
+			return fmt.Errorf("current worktree %q not found in git worktree list", repo.CurrentRoot)
+		}
+	} else {
+		target, err = resolve.Resolve(repo.Entries, c.Name)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, line := range wgenv.Render(wgenv.BuildContext(repo, target)) {
+		_, _ = fmt.Fprintln(rt.stdout, line)
+	}
+	return nil
+}
+
+func (rt *runtime) loadRepository() (worktree.Repository, error) {
+	return worktree.LoadRepository(rt.ctx, rt.gitRunner, rt.cwd)
+}
+
+func currentEntry(entries []worktree.Entry) (worktree.Entry, bool) {
+	for _, entry := range entries {
+		if entry.IsCurrent {
+			return entry, true
+		}
+	}
+	return worktree.Entry{}, false
+}
+
+func entryState(entry worktree.Entry) string {
+	switch {
+	case entry.Branch != "":
+		return entry.Branch
+	case entry.IsDetached:
+		if len(entry.Head) >= 12 {
+			return "detached " + entry.Head[:12]
+		}
+		return "detached"
+	case entry.IsBare:
+		return "bare"
+	default:
+		return "unknown"
+	}
+}
+
+func writeDiagnostic(stderr io.Writer, err error) {
+	var ambiguous resolve.AmbiguousError
+	if errors.As(err, &ambiguous) {
+		_, _ = fmt.Fprintf(stderr, "ambiguous worktree %q; candidates: %s\n", ambiguous.Query, strings.Join(ambiguous.Candidates, ", "))
+		return
+	}
+
+	var missing resolve.MissingError
+	if errors.As(err, &missing) {
+		_, _ = fmt.Fprintf(stderr, "worktree %q not found\n", missing.Query)
+		return
+	}
+
+	_, _ = fmt.Fprintln(stderr, err)
+}
