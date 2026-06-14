@@ -13,8 +13,11 @@ import (
 	wgenv "wg/internal/env"
 	"wg/internal/git"
 	"wg/internal/resolve"
+	"wg/internal/tui"
 	"wg/internal/worktree"
 )
+
+type PickerFunc func(context.Context, []tui.PickerOption, io.Reader, io.Writer) (tui.PickerOption, error)
 
 type Options struct {
 	Cwd       string
@@ -23,12 +26,15 @@ type Options struct {
 	Stderr    io.Writer
 	Environ   []string
 	GitRunner git.Runner
+	Picker    PickerFunc
 }
 
 type rootCmd struct {
-	List listCmd `cmd:"" help:"List worktrees."`
-	Path pathCmd `cmd:"" help:"Print a worktree path."`
-	Env  envCmd  `cmd:"" help:"Print worktree environment context."`
+	List   listCmd   `cmd:"" help:"List worktrees."`
+	Path   pathCmd   `cmd:"" help:"Print a worktree path."`
+	Env    envCmd    `cmd:"" help:"Print worktree environment context."`
+	Switch SwitchCmd `cmd:"" help:"Select a worktree."`
+	Config ConfigCmd `cmd:"" help:"Print configuration helpers."`
 }
 
 type listCmd struct{}
@@ -41,6 +47,11 @@ type envCmd struct {
 	Name string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix."`
 }
 
+type SwitchCmd struct {
+	Reference  string `arg:"" optional:"" name:"reference" help:"Optional worktree name, branch, basename, or unique prefix."`
+	PathOutput bool   `name:"path-output" help:"Print only the selected path."`
+}
+
 type runtime struct {
 	ctx       context.Context
 	cwd       string
@@ -49,6 +60,7 @@ type runtime struct {
 	stderr    io.Writer
 	environ   []string
 	gitRunner git.Runner
+	picker    PickerFunc
 }
 
 func Run(ctx context.Context, args []string, opts Options) int {
@@ -107,6 +119,10 @@ func newRuntime(ctx context.Context, opts Options) (*runtime, error) {
 	if runner == nil {
 		runner = git.ExecRunner{Binary: "git"}
 	}
+	picker := opts.Picker
+	if picker == nil {
+		picker = tui.RunPicker
+	}
 
 	return &runtime{
 		ctx:       ctx,
@@ -116,6 +132,7 @@ func newRuntime(ctx context.Context, opts Options) (*runtime, error) {
 		stderr:    stderr,
 		environ:   opts.Environ,
 		gitRunner: runner,
+		picker:    picker,
 	}, nil
 }
 
@@ -174,6 +191,30 @@ func (c *envCmd) Run(rt *runtime) error {
 	return nil
 }
 
+func (c *SwitchCmd) Run(rt *runtime) error {
+	repo, err := rt.loadRepository()
+	if err != nil {
+		return err
+	}
+
+	var selected worktree.Entry
+	if c.Reference != "" {
+		selected, err = resolve.Resolve(repo.Entries, c.Reference)
+		if err != nil {
+			return err
+		}
+	} else {
+		option, err := rt.picker(rt.ctx, pickerOptions(repo.Entries), rt.stdin, rt.stderr)
+		if err != nil {
+			return err
+		}
+		selected = worktree.Entry{Path: option.Path}
+	}
+
+	_, _ = fmt.Fprintln(rt.stdout, selected.Path)
+	return nil
+}
+
 func (rt *runtime) loadRepository() (worktree.Repository, error) {
 	return worktree.LoadRepository(rt.ctx, rt.gitRunner, rt.cwd)
 }
@@ -203,6 +244,18 @@ func entryState(entry worktree.Entry) string {
 	}
 }
 
+func pickerOptions(entries []worktree.Entry) []tui.PickerOption {
+	options := make([]tui.PickerOption, 0, len(entries))
+	for _, entry := range entries {
+		options = append(options, tui.PickerOption{
+			Label:  entry.DisplayName,
+			Branch: entry.Branch,
+			Path:   entry.Path,
+		})
+	}
+	return options
+}
+
 func writeDiagnostic(stderr io.Writer, err error) {
 	var ambiguous resolve.AmbiguousError
 	if errors.As(err, &ambiguous) {
@@ -212,6 +265,10 @@ func writeDiagnostic(stderr io.Writer, err error) {
 
 	var missing resolve.MissingError
 	if errors.As(err, &missing) {
+		if len(missing.Candidates) > 0 {
+			_, _ = fmt.Fprintf(stderr, "worktree %q not found; candidates: %s\n", missing.Query, strings.Join(missing.Candidates, ", "))
+			return
+		}
 		_, _ = fmt.Fprintf(stderr, "worktree %q not found\n", missing.Query)
 		return
 	}

@@ -8,7 +8,8 @@ import (
 )
 
 type MissingError struct {
-	Query string
+	Query      string
+	Candidates []string
 }
 
 func (e MissingError) Error() string {
@@ -41,7 +42,7 @@ func Resolve(entries []worktree.Entry, query string) (worktree.Entry, error) {
 		return worktree.Entry{}, AmbiguousError{Query: query, Candidates: candidateNames(entries, prefix)}
 	}
 
-	return worktree.Entry{}, MissingError{Query: query}
+	return worktree.Entry{}, MissingError{Query: query, Candidates: candidateNames(entries, allIndexes(entries))}
 }
 
 type matcher func(concept string, query string) bool
@@ -92,4 +93,12 @@ func candidateNames(entries []worktree.Entry, indexes []int) []string {
 		}
 	}
 	return names
+}
+
+func allIndexes(entries []worktree.Entry) []int {
+	indexes := make([]int, 0, len(entries))
+	for i := range entries {
+		indexes = append(indexes, i)
+	}
+	return indexes
 }
