@@ -2,9 +2,9 @@ package env
 
 import (
 	"fmt"
-	"hash/fnv"
 	"path/filepath"
 
+	"wg/internal/ports"
 	"wg/internal/worktree"
 )
 
@@ -21,12 +21,10 @@ type Context struct {
 }
 
 func DerivePort(path string) int {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(filepath.Clean(path)))
-	return 10000 + int(h.Sum32()%10000)
+	return ports.DerivePort(path)
 }
 
-func BuildContext(repo worktree.Repository, target worktree.Entry) Context {
+func BuildContext(repo worktree.Repository, target worktree.Entry, defaultBranch string, base string) Context {
 	worktreeName := target.DisplayName
 	if worktreeName == "" {
 		worktreeName = target.PathBasename
@@ -43,6 +41,8 @@ func BuildContext(repo worktree.Repository, target worktree.Entry) Context {
 		Repo:                filepath.Base(repoPath),
 		RepoPath:            repoPath,
 		PrimaryWorktreePath: repoPath,
+		DefaultBranch:       defaultBranch,
+		Base:                base,
 		Port:                DerivePort(target.Path),
 	}
 }

@@ -2,10 +2,14 @@ package tui
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestPickerNavigationWrapsThroughOptions(t *testing.T) {
 	model := newPickerModel(testPickerOptions())
@@ -58,6 +62,22 @@ func TestPickerEnterRecordsSelectedPathAndExitsSuccessfully(t *testing.T) {
 	}
 	if model.selected.Path != "/repo/demo.feature-alpha" {
 		t.Fatalf("expected selected path, got %q", model.selected.Path)
+	}
+}
+
+func TestPickerViewAlignsPathsInASecondColumn(t *testing.T) {
+	model := newPickerModel(testPickerOptions())
+	view := ansiEscapePattern.ReplaceAllString(model.View().Content, "")
+	lines := strings.Split(view, "\n")
+
+	mainPathColumn := strings.Index(lines[1], "/repo/demo")
+	alphaPathColumn := strings.Index(lines[2], "/repo/demo.feature-alpha")
+	betaPathColumn := strings.Index(lines[3], "/repo/demo.feature-beta")
+	if mainPathColumn < 0 || alphaPathColumn < 0 || betaPathColumn < 0 {
+		t.Fatalf("expected all paths in picker view, got:\n%s", view)
+	}
+	if mainPathColumn != alphaPathColumn || mainPathColumn != betaPathColumn {
+		t.Fatalf("expected paths to align in one column, got main=%d alpha=%d beta=%d view:\n%s", mainPathColumn, alphaPathColumn, betaPathColumn, view)
 	}
 }
 

@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"wg/internal/ports"
 )
 
 type SetupContext struct {
@@ -41,7 +42,7 @@ func BuildSetupContext(plan NewPlan) SetupContext {
 		PrimaryWorktreePath: plan.Repository.Primary.Path,
 		DefaultBranch:       plan.DefaultBranch.Name,
 		Base:                plan.Base,
-		Port:                deriveSetupPort(plan.WorktreePath),
+		Port:                ports.DerivePort(plan.WorktreePath),
 		ScriptPath:          filepath.Join(plan.Repository.Primary.Path, ".config", "setup.sh"),
 	}
 }
@@ -105,10 +106,4 @@ func RunSetup(ctx context.Context, setup SetupContext, stderr io.Writer) (SetupR
 		return result, fmt.Errorf("setup script %s failed for branch %s at %s: %w", setup.ScriptPath, setup.Branch, setup.WorktreePath, err)
 	}
 	return result, nil
-}
-
-func deriveSetupPort(path string) int {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(filepath.Clean(path)))
-	return 10000 + int(h.Sum32()%10000)
 }

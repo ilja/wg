@@ -76,21 +76,24 @@ func cumulativePatchIDEquivalent(ctx context.Context, runner git.Runner, repoPat
 		return false, nil
 	}
 
-	branchIDs, err := patchIDsForRange(ctx, runner, repoPath, mergeBase, branch)
-	if err != nil || len(branchIDs) == 0 {
+	branchID, err := cumulativePatchID(ctx, runner, repoPath, mergeBase, branch)
+	if err != nil || branchID == "" {
 		return false, err
 	}
 	targetIDs, err := patchIDsForRange(ctx, runner, repoPath, mergeBase, target)
 	if err != nil {
 		return false, err
 	}
+	_, ok := targetIDs[branchID]
+	return ok, nil
+}
 
-	for id := range branchIDs {
-		if _, ok := targetIDs[id]; !ok {
-			return false, nil
-		}
+func cumulativePatchID(ctx context.Context, runner git.Runner, repoPath string, base string, ref string) (string, error) {
+	patch, err := git.Output(ctx, runner, repoPath, "diff", base, ref, "--")
+	if err != nil {
+		return "", nil
 	}
-	return true, nil
+	return stablePatchID(ctx, runner, repoPath, patch)
 }
 
 func patchIDsForRange(ctx context.Context, runner git.Runner, repoPath string, base string, ref string) (map[string]struct{}, error) {

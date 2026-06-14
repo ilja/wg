@@ -2,6 +2,42 @@
 
 `wg` is a small Git worktree manager that keeps native Git as the source of truth. Its first version is intentionally focused on the commands needed to create, inspect, enter, update, copy local ignored files between, and safely remove worktrees.
 
+## Installation
+
+Build `wg` from the repository root:
+
+```sh
+go build -o wg ./cmd/wg
+```
+
+Install it into a directory on your `PATH`, for example:
+
+```sh
+mkdir -p ~/bin
+mv wg ~/bin/wg
+```
+
+If `~/bin` is not already on your `PATH`, add this to your shell startup file, such as `~/.zshrc`:
+
+```zsh
+export PATH="$HOME/bin:$PATH"
+```
+
+Reload the shell and verify the command is available:
+
+```sh
+source ~/.zshrc
+wg --help
+```
+
+Alternatively, install through Go:
+
+```sh
+go install ./cmd/wg
+```
+
+When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your `PATH`.
+
 ## Commands
 
 - `wg list` — list known worktrees with the current worktree marked.

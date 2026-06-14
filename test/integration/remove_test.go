@@ -47,6 +47,56 @@ func TestRemoveSquashEquivalentWorktreeDeletesWorktreeAndBranch(t *testing.T) {
 	assertBranchMissing(t, repo, branch)
 }
 
+func TestRemoveCherryEquivalentWorktreeDeletesWorktreeAndBranch(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	branch := "feature/remove-cherry"
+	path := addLifecycleWorktree(t, repo, branch)
+	commitFile(t, path, "cherry.txt", "cherry\n", "cherry feature")
+	commit := strings.TrimSpace(runGit(t, path, "rev-parse", "HEAD"))
+	runGit(t, repo, "cherry-pick", commit)
+	commitFile(t, repo, "main-only.txt", "main only\n", "main only")
+	runGit(t, repo, "push", "origin", "main")
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "remove", "remove-cherry")
+	if code != 0 {
+		t.Fatalf("wg remove exited %d, stdout: %s, stderr: %s", code, stdout, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected no stdout, got %q", stdout)
+	}
+	assertPathMissing(t, path)
+	assertBranchMissing(t, repo, branch)
+}
+
+func TestRemoveCumulativePatchEquivalentWorktreeDeletesWorktreeAndBranch(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	branch := "feature/remove-patch-id"
+	path := addLifecycleWorktree(t, repo, branch)
+	commitFile(t, path, "patch.txt", "first\n", "patch first")
+	commitFile(t, path, "patch.txt", "first\nsecond\n", "patch second")
+
+	runGit(t, repo, "checkout", "-b", "squash-equivalent", "main")
+	mustWriteFile(t, filepath.Join(repo, "patch.txt"), "first\nsecond\n")
+	runGit(t, repo, "add", "patch.txt")
+	runGit(t, repo, "commit", "-m", "squashed patch feature")
+	runGit(t, repo, "checkout", "main")
+	runGit(t, repo, "merge", "--no-ff", "squash-equivalent", "-m", "merge squash equivalent")
+	commitFile(t, repo, "main-only.txt", "main only\n", "main only")
+	runGit(t, repo, "push", "origin", "main")
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "remove", "remove-patch-id")
+	if code != 0 {
+		t.Fatalf("wg remove exited %d, stdout: %s, stderr: %s", code, stdout, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("expected no stdout, got %q", stdout)
+	}
+	assertPathMissing(t, path)
+	assertBranchMissing(t, repo, branch)
+}
+
 func TestRemoveUnmergedRefusesAndPreservesWorktreeAndBranch(t *testing.T) {
 	bin := buildWG(t)
 	repo := initRepoWithOrigin(t)

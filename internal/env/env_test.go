@@ -38,15 +38,15 @@ func TestBuildContextAndRender(t *testing.T) {
 		},
 	}
 	target := repo.Entries[1]
-	ctx := wgenv.BuildContext(repo, target)
+	ctx := wgenv.BuildContext(repo, target, "main", "")
 	if ctx.Branch != "feature-alpha" || ctx.WorktreePath != "/repo/demo.feature-alpha" || ctx.WorktreeName != "feature-alpha" {
 		t.Fatalf("unexpected worktree context: %#v", ctx)
 	}
 	if ctx.Repo != "demo" || ctx.RepoPath != "/repo/demo" || ctx.PrimaryWorktreePath != "/repo/demo" {
 		t.Fatalf("unexpected repo context: %#v", ctx)
 	}
-	if ctx.DefaultBranch != "" || ctx.Base != "" {
-		t.Fatalf("default branch and base should be empty in phase 1, got %#v", ctx)
+	if ctx.DefaultBranch != "main" || ctx.Base != "" {
+		t.Fatalf("unexpected default branch/base context: %#v", ctx)
 	}
 
 	lines := wgenv.Render(ctx)
@@ -80,8 +80,8 @@ func TestBuildContextAndRender(t *testing.T) {
 	if values["WG_REPO"] != "demo" || values["WG_REPO_PATH"] != "/repo/demo" || values["WG_PRIMARY_WORKTREE_PATH"] != "/repo/demo" {
 		t.Fatalf("unexpected rendered repo values: %#v", values)
 	}
-	if values["WG_DEFAULT_BRANCH"] != "" || values["WG_BASE"] != "" {
-		t.Fatalf("expected empty default/base values, got %#v", values)
+	if values["WG_DEFAULT_BRANCH"] != "main" || values["WG_BASE"] != "" {
+		t.Fatalf("unexpected default/base values, got %#v", values)
 	}
 	port, err := strconv.Atoi(values["WG_PORT"])
 	if err != nil || port != wgenv.DerivePort("/repo/demo.feature-alpha") {

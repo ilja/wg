@@ -92,23 +92,37 @@ func (m pickerModel) View() tea.View {
 	var builder strings.Builder
 	selectedStyle := lipgloss.NewStyle().Bold(true)
 	mutedStyle := lipgloss.NewStyle().Faint(true)
+	labelStyle := lipgloss.NewStyle().Width(labelColumnWidth(m.options))
 
 	builder.WriteString("Select worktree:\n")
 	for i, option := range m.options {
-		cursor := "  "
-		label := option.Label
-		if option.Branch != "" && option.Branch != option.Label {
-			label += " (" + option.Branch + ")"
-		}
-		line := fmt.Sprintf("%s%s %s", cursor, label, mutedStyle.Render(option.Path))
+		row := labelStyle.Render(displayLabel(option)) + "  " + mutedStyle.Render(option.Path)
 		if i == m.selectedIndex {
-			line = selectedStyle.Render("> " + label + " " + mutedStyle.Render(option.Path))
+			row = selectedStyle.Render("> " + row)
+		} else {
+			row = "  " + row
 		}
-		builder.WriteString(line)
+		builder.WriteString(row)
 		builder.WriteByte('\n')
 	}
 
 	return tea.NewView(builder.String())
+}
+
+func displayLabel(option PickerOption) string {
+	label := option.Label
+	if option.Branch != "" && option.Branch != option.Label {
+		label += " (" + option.Branch + ")"
+	}
+	return label
+}
+
+func labelColumnWidth(options []PickerOption) int {
+	width := 0
+	for _, option := range options {
+		width = max(width, lipgloss.Width(displayLabel(option)))
+	}
+	return width
 }
 
 func (m *pickerModel) moveUp() {

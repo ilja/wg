@@ -215,7 +215,12 @@ func (c *envCmd) Run(rt *runtime) error {
 		}
 	}
 
-	for _, line := range wgenv.Render(wgenv.BuildContext(repo, target)) {
+	defaultBranch, err := worktree.ResolveDefaultBranch(rt.ctx, rt.gitRunner, repo, "")
+	if err != nil {
+		return err
+	}
+
+	for _, line := range wgenv.Render(wgenv.BuildContext(repo, target, defaultBranch.Name, "")) {
 		_, _ = fmt.Fprintln(rt.stdout, line)
 	}
 	return nil

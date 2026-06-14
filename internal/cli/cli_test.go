@@ -36,11 +36,38 @@ func (f *fakeGit) Run(ctx context.Context, dir string, args ...string) (git.Resu
 }
 
 func TestReadOnlyCommandsUseOnlyFastMetadataGitCalls(t *testing.T) {
-	for _, args := range [][]string{{"list"}, {"path", "feature-alpha"}, {"env"}} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want [][]string
+	}{
+		{
+			name: "list",
+			args: []string{"list"},
+			want: [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}},
+		},
+		{
+			name: "path",
+			args: []string{"path", "feature-alpha"},
+			want: [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}},
+		},
+		{
+			name: "env",
+			args: []string{"env"},
+			want: [][]string{
+				{"rev-parse", "--show-toplevel"},
+				{"worktree", "list", "--porcelain"},
+				{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"},
+				{"ls-remote", "--symref", "origin", "HEAD"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			fg := newFakeGit()
 			var stdout, stderr bytes.Buffer
-			code := cli.Run(context.Background(), args, cli.Options{
+			code := cli.Run(context.Background(), tc.args, cli.Options{
 				Cwd:       "/repo/demo.feature-alpha/subdir",
 				Stdout:    &stdout,
 				Stderr:    &stderr,
@@ -49,9 +76,8 @@ func TestReadOnlyCommandsUseOnlyFastMetadataGitCalls(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
 			}
-			want := [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}}
-			if got := callArgs(fg.calls); !reflect.DeepEqual(got, want) {
-				t.Fatalf("git calls mismatch\nwant: %#v\n got: %#v", want, got)
+			if got := callArgs(fg.calls); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("git calls mismatch\nwant: %#v\n got: %#v", tc.want, got)
 			}
 			forbidden := []string{"status", "url", "port", "ci", "summary"}
 			for _, call := range fg.calls {
@@ -204,6 +230,9 @@ func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
 	}
 	if values["WG_WORKTREE_PATH"] != "/repo/demo.feature-alpha" || values["WG_WORKTREE_NAME"] != "feature-alpha" {
 		t.Fatalf("unexpected current worktree env values: %#v", values)
+	}
+	if values["WG_DEFAULT_BRANCH"] != "main" {
+		t.Fatalf("expected default branch main, got %q", values["WG_DEFAULT_BRANCH"])
 	}
 	if lines[7] != "WG_BASE=" {
 		t.Fatalf("existing worktree should render exactly WG_BASE=, got %q", lines[7])
