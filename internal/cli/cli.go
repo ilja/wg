@@ -34,6 +34,7 @@ type rootCmd struct {
 	Path   pathCmd   `cmd:"" help:"Print a worktree path."`
 	Env    envCmd    `cmd:"" help:"Print worktree environment context."`
 	Switch SwitchCmd `cmd:"" help:"Select a worktree."`
+	New    NewCmd    `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
 	Config ConfigCmd `cmd:"" help:"Print configuration helpers."`
 }
 
@@ -50,6 +51,11 @@ type envCmd struct {
 type SwitchCmd struct {
 	Reference  string `arg:"" optional:"" name:"reference" help:"Optional worktree name, branch, basename, or unique prefix."`
 	PathOutput bool   `name:"path-output" help:"Print only the selected path."`
+}
+
+type NewCmd struct {
+	Branch string `arg:"" name:"branch" help:"Branch to create."`
+	Base   string `arg:"" optional:"" name:"base" help:"Optional base commit, branch, or ref."`
 }
 
 type runtime struct {
@@ -213,6 +219,19 @@ func (c *SwitchCmd) Run(rt *runtime) error {
 
 	_, _ = fmt.Fprintln(rt.stdout, selected.Path)
 	return nil
+}
+
+func (c *NewCmd) Run(rt *runtime) error {
+	creator := worktree.Creator{Runner: rt.gitRunner}
+	_, err := creator.Create(rt.ctx, worktree.NewOptions{
+		Cwd:     rt.cwd,
+		Branch:  c.Branch,
+		Base:    c.Base,
+		Stdout:  rt.stdout,
+		Stderr:  rt.stderr,
+		Environ: rt.environ,
+	})
+	return err
 }
 
 func (rt *runtime) loadRepository() (worktree.Repository, error) {
