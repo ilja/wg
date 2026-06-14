@@ -20,7 +20,22 @@ func ZshInit(binaryName string) string {
     return $?
   fi
 
+  if [[ "$1" == "remove" ]]; then
+    shift
+    local wg_remove_cd_target
+    wg_remove_cd_target="$(command %s remove --print-cd-target "$@")"
+    local wg_remove_status=$?
+    if [[ $wg_remove_status -ne 0 ]]; then
+      return $wg_remove_status
+    fi
+    if [[ -n "$wg_remove_cd_target" ]]; then
+      builtin cd -- "$wg_remove_cd_target"
+      return $?
+    fi
+    return 0
+  fi
+
   command %s "$@"
 }
-`, binaryName, binaryName)
+`, binaryName, binaryName, binaryName)
 }

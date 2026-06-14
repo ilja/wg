@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -25,12 +26,7 @@ type ExecRunner struct {
 }
 
 func (r ExecRunner) Run(ctx context.Context, dir string, args ...string) (Result, error) {
-	binary := r.Binary
-	if binary == "" {
-		binary = "git"
-	}
-
-	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd := exec.CommandContext(ctx, r.binary(), args...)
 	cmd.Dir = dir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -56,6 +52,94 @@ func (r ExecRunner) Run(ctx context.Context, dir string, args ...string) (Result
 	return result, err
 }
 
+func (r ExecRunner) binary() string {
+	if r.Binary == "" {
+		return "git"
+	}
+	return r.Binary
+}
+
+func (r ExecRunner) RunStreaming(ctx context.Context, dir string, stdout io.Writer, stderr io.Writer, args ...string) error {
+	cmd := exec.CommandContext(ctx, r.binary(), args...)
+	cmd.Dir = dir
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return commandError(cmd.Run(), args...)
+}
+
+func (r ExecRunner) RunWithInput(ctx context.Context, dir string, stdin io.Reader, stdout io.Writer, stderr io.Writer, args ...string) error {
+	cmd := exec.CommandContext(ctx, r.binary(), args...)
+	cmd.Dir = dir
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return commandError(cmd.Run(), args...)
+}
+
+func RunOK(ctx context.Context, runner Runner, dir string, args ...string) error {
+	result, err := runner.Run(ctx, dir, args...)
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("git %s failed: %s", strings.Join(args, " "), strings.TrimSpace(result.Stderr))
+	}
+	return nil
+}
+
+func Output(ctx context.Context, runner Runner, dir string, args ...string) (string, error) {
+	result, err := runner.Run(ctx, dir, args...)
+	if err != nil {
+		return "", err
+	}
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("git %s failed: %s", strings.Join(args, " "), strings.TrimSpace(result.Stderr))
+	}
+	return result.Stdout, nil
+}
+
+func RunStreaming(ctx context.Context, runner Runner, dir string, stdout io.Writer, stderr io.Writer, args ...string) error {
+	if streaming, ok := runner.(interface {
+		RunStreaming(context.Context, string, io.Writer, io.Writer, ...string) error
+	}); ok {
+		return streaming.RunStreaming(ctx, dir, stdout, stderr, args...)
+	}
+	result, err := runner.Run(ctx, dir, args...)
+	if result.Stdout != "" && stdout != nil {
+		_, _ = io.WriteString(stdout, result.Stdout)
+	}
+	if result.Stderr != "" && stderr != nil {
+		_, _ = io.WriteString(stderr, result.Stderr)
+	}
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("git %s failed", strings.Join(args, " "))
+	}
+	return nil
+}
+
+func RunWithInput(ctx context.Context, runner Runner, dir string, stdin io.Reader, stdout io.Writer, stderr io.Writer, args ...string) error {
+	if inputRunner, ok := runner.(interface {
+		RunWithInput(context.Context, string, io.Reader, io.Writer, io.Writer, ...string) error
+	}); ok {
+		return inputRunner.RunWithInput(ctx, dir, stdin, stdout, stderr, args...)
+	}
+	return fmt.Errorf("git %s requires stdin support unavailable for this runner", strings.Join(args, " "))
+}
+
+func commandError(err error, args ...string) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return fmt.Errorf("git %s failed", strings.Join(args, " "))
+	}
+	return err
+}
+
 func (r ExecRunner) TrackedPaths(ctx context.Context, root string, rels []string) (map[string]struct{}, error) {
 	out := make(map[string]struct{})
 	if len(rels) == 0 {
@@ -78,11 +162,7 @@ func (r ExecRunner) IgnoredPaths(ctx context.Context, root string, rels []string
 		return out, nil
 	}
 
-	binary := r.Binary
-	if binary == "" {
-		binary = "git"
-	}
-	cmd := exec.CommandContext(ctx, binary, "check-ignore", "-z", "--stdin")
+	cmd := exec.CommandContext(ctx, r.binary(), "check-ignore", "-z", "--stdin")
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(strings.Join(rels, "\x00") + "\x00")
 	var stdout, stderr bytes.Buffer

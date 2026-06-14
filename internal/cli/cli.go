@@ -14,6 +14,8 @@ import (
 	"wg/internal/copyignored"
 	wgenv "wg/internal/env"
 	"wg/internal/git"
+	"wg/internal/rebase"
+	"wg/internal/remove"
 	"wg/internal/resolve"
 	"wg/internal/tui"
 	"wg/internal/worktree"
@@ -37,7 +39,9 @@ type rootCmd struct {
 	Env         envCmd         `cmd:"" help:"Print worktree environment context."`
 	Switch      SwitchCmd      `cmd:"" help:"Select a worktree."`
 	New         NewCmd         `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
+	Rebase      RebaseCmd      `cmd:"" help:"Fetch and rebase the current worktree onto a base."`
 	CopyIgnored CopyIgnoredCmd `cmd:"" name:"copy-ignored" help:"Copy allowlisted ignored files between worktrees."`
+	Remove      RemoveCmd      `cmd:"" help:"Safely remove one integrated non-primary worktree."`
 	Config      ConfigCmd      `cmd:"" help:"Print configuration helpers."`
 }
 
@@ -59,6 +63,16 @@ type SwitchCmd struct {
 type NewCmd struct {
 	Branch string `arg:"" name:"branch" help:"Branch to create."`
 	Base   string `arg:"" optional:"" name:"base" help:"Optional base commit, branch, or ref."`
+}
+
+type RebaseCmd struct {
+	Base string `arg:"" optional:"" name:"base" help:"Optional base branch, remote ref, or commit. Defaults to the repository default branch."`
+}
+
+type RemoveCmd struct {
+	Name          string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix. Defaults to the current worktree."`
+	Force         bool   `short:"D" help:"Force removal of exactly one single named non-primary target."`
+	PrintCdTarget bool   `name:"print-cd-target" hidden:"" help:"Print the primary path when removing the current worktree."`
 }
 
 type CopyIgnoredCmd struct {
@@ -242,6 +256,23 @@ func (c *NewCmd) Run(rt *runtime) error {
 		Environ: rt.environ,
 	})
 	return err
+}
+
+func (c *RebaseCmd) Run(rt *runtime) error {
+	service := rebase.New(rt.gitRunner, rt.stdout, rt.stderr)
+	return service.Run(rt.ctx, rebase.Options{Cwd: rt.cwd, Base: c.Base})
+}
+
+func (c *RemoveCmd) Run(rt *runtime) error {
+	service := remove.New(rt.gitRunner, rt.stderr)
+	result, err := service.Run(rt.ctx, remove.Options{Cwd: rt.cwd, Name: c.Name, Force: c.Force})
+	if err != nil {
+		return err
+	}
+	if c.PrintCdTarget && result.CdTarget != "" {
+		_, _ = fmt.Fprintln(rt.stdout, result.CdTarget)
+	}
+	return nil
 }
 
 func (c *CopyIgnoredCmd) Run(rt *runtime) error {
