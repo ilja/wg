@@ -65,17 +65,19 @@ The zsh wrapper intercepts `wg switch` and `wg remove`. Successful `wg switch` c
 
 The setup script receives these values:
 
-- `WG_BRANCH`
-- `WG_WORKTREE_PATH`
-- `WG_WORKTREE_NAME`
-- `WG_REPO`
-- `WG_REPO_PATH`
-- `WG_PRIMARY_WORKTREE_PATH`
-- `WG_DEFAULT_BRANCH`
-- `WG_BASE`
-- `WG_PORT`
+| Variable                   | Example                                      | Meaning                                           |
+| -------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| `WG_BRANCH`                | `feature/add-search`                         | Branch being created.                             |
+| `WG_WORKTREE_PATH`         | `/Users/<user>/work/demo.feature-add-search` | New worktree path.                                |
+| `WG_WORKTREE_NAME`         | `feature-add-search`                         | Sanitized worktree name.                          |
+| `WG_REPO`                  | `demo`                                       | Repository name.                                  |
+| `WG_REPO_PATH`             | `/Users/<user>/work/demo`                    | Primary worktree path.                            |
+| `WG_PRIMARY_WORKTREE_PATH` | `/Users/<user>/work/demo`                    | Same primary worktree path, explicit for scripts. |
+| `WG_DEFAULT_BRANCH`        | `main`                                       | Resolved default branch.                          |
+| `WG_BASE`                  | `main`                                       | Base passed or resolved for `wg new`.             |
+| `WG_PORT`                  | `14832`                                      | Stable port derived from the worktree path.       |
 
-Example:
+Example setup script:
 
 ```sh
 #!/bin/sh
@@ -88,7 +90,3 @@ export PUMA_METRICS_PORT="$((WG_PORT + 1))"
 ln -sfn /path/to/shared/plans "$WG_WORKTREE_PATH/.plans"
 ln -sfn /path/to/shared/wiki "$WG_WORKTREE_PATH/.wiki"
 ```
-
-## Out of scope for v1
-
-`wg` does not implement bulk prune, merge workflows, LLM commit/squash/push flows, generic hook DSLs, dev-server management, URL/status columns, automatic migration from other tools, or unrelated Git workflow replacement. Use native Git and project-local scripts for those workflows.
