@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -45,7 +46,9 @@ type rootCmd struct {
 	Config      ConfigCmd      `cmd:"" help:"Print configuration helpers."`
 }
 
-type listCmd struct{}
+type listCmd struct {
+	JSON bool `name:"json" help:"Print worktrees as JSON."`
+}
 
 type pathCmd struct {
 	Name string `arg:"" name:"name" help:"Worktree name, branch, basename, or unique prefix."`
@@ -171,15 +174,58 @@ func (c *listCmd) Run(rt *runtime) error {
 	if err != nil {
 		return err
 	}
+	if c.JSON {
+		return writeListJSON(rt.stdout, repo.Entries)
+	}
 
-	for _, entry := range repo.Entries {
+	integratedBranches := integratedBranchesIntoDefault(rt.ctx, rt.gitRunner, repo)
+	_, _ = fmt.Fprint(rt.stdout, tui.RenderWorktreeList(listRows(repo.Entries, integratedBranches)))
+	return nil
+}
+
+type listJSONEntry struct {
+	Current  bool   `json:"current"`
+	Primary  bool   `json:"primary"`
+	Name     string `json:"name"`
+	Branch   string `json:"branch"`
+	Path     string `json:"path"`
+	Head     string `json:"head"`
+	Detached bool   `json:"detached"`
+	Bare     bool   `json:"bare"`
+}
+
+func writeListJSON(output io.Writer, entries []worktree.Entry) error {
+	jsonEntries := make([]listJSONEntry, 0, len(entries))
+	for _, entry := range entries {
+		jsonEntries = append(jsonEntries, listJSONEntry{
+			Current:  entry.IsCurrent,
+			Primary:  entry.IsPrimary,
+			Name:     entry.DisplayName,
+			Branch:   entry.Branch,
+			Path:     entry.Path,
+			Head:     entry.Head,
+			Detached: entry.IsDetached,
+			Bare:     entry.IsBare,
+		})
+	}
+	return json.NewEncoder(output).Encode(jsonEntries)
+}
+
+func listRows(entries []worktree.Entry, integratedBranches map[string]struct{}) []tui.WorktreeListRow {
+	rows := make([]tui.WorktreeListRow, 0, len(entries))
+	for _, entry := range entries {
 		marker := " "
 		if entry.IsCurrent {
 			marker = "*"
 		}
-		_, _ = fmt.Fprintf(rt.stdout, "%s %s %s %s\n", marker, entry.DisplayName, entryState(entry), entry.Path)
+		rows = append(rows, tui.WorktreeListRow{
+			Marker:     marker,
+			Name:       entry.DisplayName,
+			Path:       entry.Path,
+			Integrated: entryCanBeMuted(entry) && branchIsIntegrated(entry.Branch, integratedBranches),
+		})
 	}
-	return nil
+	return rows
 }
 
 func (c *pathCmd) Run(rt *runtime) error {
@@ -239,7 +285,7 @@ func (c *SwitchCmd) Run(rt *runtime) error {
 			return err
 		}
 	} else {
-		integratedBranches := switchIntegratedBranches(rt.ctx, rt.gitRunner, repo)
+		integratedBranches := integratedBranchesIntoDefault(rt.ctx, rt.gitRunner, repo)
 		option, err := rt.picker(rt.ctx, pickerOptions(repo.Entries, integratedBranches), rt.stdin, rt.stderr)
 		if err != nil {
 			return err
@@ -356,8 +402,8 @@ func pickerOptions(entries []worktree.Entry, integratedBranches map[string]struc
 	return options
 }
 
-func switchIntegratedBranches(ctx context.Context, runner git.Runner, repo worktree.Repository) map[string]struct{} {
-	defaultBranch, ok := switchDefaultBranch(ctx, runner, repo)
+func integratedBranchesIntoDefault(ctx context.Context, runner git.Runner, repo worktree.Repository) map[string]struct{} {
+	defaultBranch, ok := localDefaultBranch(ctx, runner, repo)
 	if !ok {
 		return nil
 	}
@@ -378,7 +424,7 @@ func switchIntegratedBranches(ctx context.Context, runner git.Runner, repo workt
 	return integratedBranches
 }
 
-func switchDefaultBranch(ctx context.Context, runner git.Runner, repo worktree.Repository) (string, bool) {
+func localDefaultBranch(ctx context.Context, runner git.Runner, repo worktree.Repository) (string, bool) {
 	result, err := runner.Run(ctx, repo.Primary.Path, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	if err != nil {
 		return "", false
@@ -392,8 +438,8 @@ func switchDefaultBranch(ctx context.Context, runner git.Runner, repo worktree.R
 		return repo.Primary.Branch, true
 	}
 
-	hasMain := switchLocalBranchExists(ctx, runner, repo, "main")
-	hasMaster := switchLocalBranchExists(ctx, runner, repo, "master")
+	hasMain := localBranchExistsForIntegration(ctx, runner, repo, "main")
+	hasMaster := localBranchExistsForIntegration(ctx, runner, repo, "master")
 	switch {
 	case hasMain && !hasMaster:
 		return "main", true
@@ -404,7 +450,7 @@ func switchDefaultBranch(ctx context.Context, runner git.Runner, repo worktree.R
 	}
 }
 
-func switchLocalBranchExists(ctx context.Context, runner git.Runner, repo worktree.Repository, branch string) bool {
+func localBranchExistsForIntegration(ctx context.Context, runner git.Runner, repo worktree.Repository, branch string) bool {
 	result, err := runner.Run(ctx, repo.Primary.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 	return err == nil && result.ExitCode == 0
 }

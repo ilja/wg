@@ -3,7 +3,9 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +13,8 @@ import (
 	"wg/internal/cli"
 	"wg/internal/git"
 )
+
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 type gitCall struct {
 	Dir  string
@@ -47,7 +51,12 @@ func TestReadOnlyCommandsUseOnlyFastMetadataGitCalls(t *testing.T) {
 		{
 			name: "list",
 			args: []string{"list"},
-			want: [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}},
+			want: [][]string{
+				{"rev-parse", "--show-toplevel"},
+				{"worktree", "list", "--porcelain"},
+				{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"},
+				{"for-each-ref", "--format=%(refname:short)", "--merged=main", "refs/heads"},
+			},
 		},
 		{
 			name: "path",
@@ -92,6 +101,84 @@ func TestReadOnlyCommandsUseOnlyFastMetadataGitCalls(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestListHumanOutputAlignsColumnsAndMutesIntegratedBranches(t *testing.T) {
+	fg := newFakeGit()
+	fg.mergedBranches = "main\nfeature-alpha\n"
+	var stdout, stderr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"list"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha/subdir",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		GitRunner: fg,
+	})
+	if code != 0 {
+		t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "\x1b[2mfeature-alpha") {
+		t.Fatalf("expected integrated branch name to be faint, got:\n%s", stdout.String())
+	}
+
+	plain := ansiEscapePattern.ReplaceAllString(stdout.String(), "")
+	if strings.Contains(plain, "main main") || strings.Contains(plain, "feature-alpha feature-alpha") {
+		t.Fatalf("expected human list not to repeat branch as state, got:\n%s", plain)
+	}
+	lines := strings.Split(strings.TrimSuffix(plain, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected three list rows, got %#v", lines)
+	}
+	pathColumn := strings.Index(lines[0], "/repo/demo")
+	if pathColumn < 0 {
+		t.Fatalf("expected path in first row, got %q", lines[0])
+	}
+	for _, line := range lines[1:] {
+		if got := strings.Index(line, "/repo/"); got != pathColumn {
+			t.Fatalf("expected paths to align at column %d, got %d in:\n%s", pathColumn, got, plain)
+		}
+	}
+	for _, call := range fg.calls {
+		if strings.Join(call.Args, " ") == "ls-remote --symref origin HEAD" {
+			t.Fatalf("expected list merged-status lookup to avoid network-capable ls-remote call; calls: %#v", fg.calls)
+		}
+	}
+}
+
+func TestListJSONSkipsMergedStatusLookup(t *testing.T) {
+	fg := newFakeGit()
+	var stdout, stderr bytes.Buffer
+	code := cli.Run(context.Background(), []string{"list", "--json"}, cli.Options{
+		Cwd:       "/repo/demo.feature-alpha/subdir",
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		GitRunner: fg,
+	})
+	if code != 0 {
+		t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+	}
+	if got := callArgs(fg.calls); !reflect.DeepEqual(got, [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}}) {
+		t.Fatalf("expected json list to skip merged lookup, got calls %#v", got)
+	}
+
+	var entries []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &entries); err != nil {
+		t.Fatalf("expected valid json, got %v from %q", err, stdout.String())
+	}
+	if len(entries) != 3 {
+		t.Fatalf("expected three json entries, got %#v", entries)
+	}
+	if entries[1]["name"] != "feature-alpha" || entries[1]["branch"] != "feature-alpha" || entries[1]["current"] != true {
+		t.Fatalf("unexpected json entry: %#v", entries[1])
+	}
+	if _, ok := entries[1]["state"]; ok {
+		t.Fatalf("json list should not include redundant state: %#v", entries[1])
+	}
+	if _, ok := entries[1]["integrated"]; ok {
+		t.Fatalf("json list should not include integrated status: %#v", entries[1])
+	}
+	if _, ok := entries[1]["merged"]; ok {
+		t.Fatalf("json list should not include merged status: %#v", entries[1])
 	}
 }
 

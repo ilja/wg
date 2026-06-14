@@ -40,7 +40,7 @@ When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your 
 
 ## Commands
 
-- `wg list` — list known worktrees with the current worktree marked.
+- `wg list [--json]` — list known worktrees with the current worktree marked.
 - `wg switch [name]` — select a worktree; with zsh integration this changes the parent shell directory.
 - `wg path <name>` — print exactly the resolved worktree path.
 - `wg new <branch> [base]` — create a sibling worktree and branch from an explicit or resolved default base.
