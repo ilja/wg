@@ -83,7 +83,7 @@ func (c Creator) Create(ctx context.Context, opts NewOptions) (NewResult, error)
 		return NewResult{}, err
 	}
 
-	result, err := c.runner().Run(ctx, plan.Repository.Primary.Path, "worktree", "add", "-b", plan.Branch, plan.WorktreePath, plan.Base)
+	result, err := c.runner().Run(ctx, plan.Repository.Primary.Path, "worktree", "add", "--no-track", "-b", plan.Branch, plan.WorktreePath, plan.Base)
 	if result.Stdout != "" {
 		_, _ = io.WriteString(stderr, result.Stdout)
 	}

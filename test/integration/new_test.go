@@ -101,6 +101,20 @@ func TestNewResolvesDefaultBaseSuccessCases(t *testing.T) {
 		}
 	})
 
+	t.Run("origin head with remote does not set upstream", func(t *testing.T) {
+		repo := initRepoWithOrigin(t)
+		originTip := strings.TrimSpace(runGit(t, repo, "rev-parse", "origin/main"))
+
+		_, stderr, code := runWGCommand(t, bin, repo, "new", "feature/origin-no-track")
+		if code != 0 {
+			t.Fatalf("wg new exited %d, stderr: %s", code, stderr)
+		}
+		if got := strings.TrimSpace(runGit(t, repo, "rev-parse", "feature/origin-no-track")); got != originTip {
+			t.Fatalf("expected new branch tip %s to match origin HEAD %s", got, originTip)
+		}
+		assertNoBranchUpstream(t, repo, "feature/origin-no-track")
+	})
+
 	t.Run("unambiguous local master", func(t *testing.T) {
 		repo := initRepoOnBranch(t, "develop")
 		masterTip := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
@@ -321,6 +335,18 @@ func assertNewRefusalBeforeMutation(t *testing.T, bin, repo string, args []strin
 		t.Fatalf("expected stderr to contain %q, got %q", diagnostic, stderr)
 	}
 	assertNoMutation(t, repo, refsBefore, worktreesBefore)
+}
+
+func assertNoBranchUpstream(t *testing.T, repo, branch string) {
+	t.Helper()
+	for _, key := range []string{"remote", "merge"} {
+		cmd := exec.Command("git", "config", "--get", "branch."+branch+"."+key)
+		cmd.Dir = repo
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected branch %s to have no upstream %s, got %q", branch, key, output)
+		}
+	}
 }
 
 func shellQuote(value string) string {
