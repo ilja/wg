@@ -38,3 +38,57 @@ printf '%%s\n' "$PWD"
 	assertPathMissing(t, path)
 	assertBranchMissing(t, repo, branch)
 }
+
+func TestZshRemoveCompletionOffersMatchingBranchPrefixes(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is unavailable")
+	}
+
+	bin := buildWG(t)
+	repo := initRepo(t)
+	addWorktree(t, repo, "feature-alpha", "demo.feature-alpha")
+	addWorktree(t, repo, "feature-alpine", "demo.feature-alpine")
+
+	stdout, stderr, code := runZsh(t, bin, fmt.Sprintf(`
+autoload -Uz compinit
+compinit -D
+eval "$(wg config shell init zsh)"
+builtin cd -- %q
+compadd() {
+  if [[ "$1" == "-a" ]]; then
+    typeset -p "$2"
+  fi
+}
+
+words=(wg remove feature-alph)
+CURRENT=3
+_wg
+
+words=(wg remove feature-a)
+CURRENT=3
+_wg
+
+words=(wg remove -D feature-alph)
+CURRENT=4
+_wg
+
+words=(wg remove feature-alpha extra)
+CURRENT=4
+_wg
+`, repo))
+	if code != 0 {
+		t.Fatalf("zsh script exited %d, stdout: %s, stderr: %s", code, stdout, stderr)
+	}
+	want := strings.Join([]string{
+		"typeset -g -a wg_remove_candidates=( feature-alpha )",
+		"typeset -g -a wg_remove_candidates=( feature-alpha feature-alpine )",
+		"typeset -g -a wg_remove_candidates=( feature-alpha )",
+		"",
+	}, "\n")
+	if stdout != want {
+		t.Fatalf("expected matching branch completions, got stdout %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+}

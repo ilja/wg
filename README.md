@@ -51,13 +51,35 @@ When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your 
 
 ## Shell setup
 
-For zsh parent-shell directory changes, initialize the function in your shell startup:
+For zsh parent-shell directory changes and `wg remove` branch completion, initialize the function in your shell startup after `compinit`:
 
 ```zsh
+autoload -Uz compinit
+compinit
+
 eval "$(wg config shell init zsh)"
 ```
 
 The zsh wrapper intercepts `wg switch` and `wg remove`. Successful `wg switch` changes the caller directory to the selected worktree. Successful removal of the current worktree changes the caller directory back to the primary worktree.
+
+The same zsh setup registers completion for the branch argument to `wg remove`:
+
+```zsh
+wg remove feat<Tab>
+wg remove -D feat<Tab>
+```
+
+Completion offers attached, non-primary worktree branch names. If more than one branch starts with the typed prefix, zsh shows the matching choices; cycling through those choices follows your zsh completion settings. To enable menu selection, add this before the `eval` line:
+
+```zsh
+zstyle ':completion:*' menu select
+```
+
+After changing `~/.zshrc`, reload the shell:
+
+```zsh
+source ~/.zshrc
+```
 
 ## Project setup hook
 

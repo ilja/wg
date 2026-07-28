@@ -264,6 +264,80 @@ func TestPathAndEnvStdoutDataContracts(t *testing.T) {
 	})
 }
 
+func TestRemoveCompletionOutputsEligibleBranchMatches(t *testing.T) {
+	cases := []struct {
+		name      string
+		prefix    string
+		porcelain string
+		want      string
+	}{
+		{
+			name:   "unique branch prefix",
+			prefix: "feature-a",
+			want:   "feature-alpha\n",
+		},
+		{
+			name:   "ambiguous branch prefix",
+			prefix: "feature",
+			want:   "feature-alpha\nfeature-beta\n",
+		},
+		{
+			name:   "missing branch prefix",
+			prefix: "missing",
+		},
+		{
+			name:   "case sensitive prefix",
+			prefix: "Feature-a",
+		},
+		{
+			name:   "primary branch excluded",
+			prefix: "ma",
+		},
+		{
+			name:   "detached worktree excluded",
+			prefix: "detached",
+			porcelain: strings.Join([]string{
+				"worktree /repo/demo",
+				"HEAD 1111111111111111111111111111111111111111",
+				"branch refs/heads/main",
+				"",
+				"worktree /repo/demo.detached",
+				"HEAD 2222222222222222222222222222222222222222",
+				"detached",
+				"",
+			}, "\n"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fg := newFakeGit()
+			if tc.porcelain != "" {
+				fg.porcelain = tc.porcelain
+			}
+			var stdout, stderr bytes.Buffer
+			code := cli.Run(context.Background(), []string{"config", "shell", "complete", "remove", tc.prefix}, cli.Options{
+				Cwd:       "/repo/demo.feature-alpha",
+				Stdout:    &stdout,
+				Stderr:    &stderr,
+				GitRunner: fg,
+			})
+			if code != 0 {
+				t.Fatalf("expected success, code=%d stderr=%q", code, stderr.String())
+			}
+			if stdout.String() != tc.want {
+				t.Fatalf("unexpected stdout: want %q got %q", tc.want, stdout.String())
+			}
+			if stderr.String() != "" {
+				t.Fatalf("expected empty stderr, got %q", stderr.String())
+			}
+			if got := callArgs(fg.calls); !reflect.DeepEqual(got, [][]string{{"rev-parse", "--show-toplevel"}, {"worktree", "list", "--porcelain"}}) {
+				t.Fatalf("git calls mismatch: %#v", got)
+			}
+		})
+	}
+}
+
 func TestEnvStableOrderedExistingWorktreeOutput(t *testing.T) {
 	fg := newFakeGit()
 	var firstStdout, firstStderr bytes.Buffer
