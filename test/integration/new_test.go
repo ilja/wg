@@ -41,6 +41,9 @@ func TestNewExplicitBaseCreatesSanitizedSiblingAndRunsSetup(t *testing.T) {
 	if !strings.Contains(stderr, "setup stdout from script") {
 		t.Fatalf("expected setup stdout routed to stderr, got %q", stderr)
 	}
+	if strings.Contains(stderr, "warning: no .config/setup.sh found; project setup was not run") {
+		t.Fatalf("unexpected missing setup script warning in stderr: %q", stderr)
+	}
 	if got := strings.TrimSpace(runGit(t, repo, "rev-parse", branch)); got != base {
 		t.Fatalf("expected branch tip %s to match base %s", got, base)
 	}
@@ -76,12 +79,15 @@ func TestNewResolvesDefaultBaseSuccessCases(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("wg new exited %d, stderr: %s", code, stderr)
 		}
-		path := strings.TrimSpace(stdout)
+		wantPath := filepath.Join(filepath.Dir(repo), "demo.feature-default-main")
+		if stdout != wantPath+"\n" {
+			t.Fatalf("expected path-only stdout %q, got %q", wantPath+"\n", stdout)
+		}
+		if !strings.Contains(stderr, "warning: no .config/setup.sh found; project setup was not run") {
+			t.Fatalf("stderr missing setup script warning: %q", stderr)
+		}
 		if got := strings.TrimSpace(runGit(t, repo, "rev-parse", "feature/default-main")); got != mainTip {
 			t.Fatalf("expected new branch tip %s to match main %s", got, mainTip)
-		}
-		if path != filepath.Join(filepath.Dir(repo), "demo.feature-default-main") {
-			t.Fatalf("unexpected stdout path %q", stdout)
 		}
 	})
 

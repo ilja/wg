@@ -103,6 +103,9 @@ func (c Creator) Create(ctx context.Context, opts NewOptions) (NewResult, error)
 	if err != nil {
 		return NewResult{Plan: plan, Setup: setupResult}, err
 	}
+	if !setupResult.Ran {
+		_, _ = fmt.Fprintln(stderr, "warning: no .config/setup.sh found; project setup was not run")
+	}
 
 	_, _ = fmt.Fprintln(stdout, plan.WorktreePath)
 	return NewResult{Plan: plan, Setup: setupResult}, nil
