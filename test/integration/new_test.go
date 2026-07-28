@@ -121,6 +121,22 @@ func TestNewResolvesDefaultBaseSuccessCases(t *testing.T) {
 		assertNoBranchUpstream(t, repo, "feature/origin-no-track")
 	})
 
+	t.Run("fetches origin before resolving default base", func(t *testing.T) {
+		repo := initRepoWithOrigin(t)
+		remoteTip := advanceOriginDefaultBranch(t, repo, "remote.txt", "remote\n", "remote commit")
+
+		_, stderr, code := runWGCommand(t, bin, repo, "new", "feature/fetched-default")
+		if code != 0 {
+			t.Fatalf("wg new exited %d, stderr: %s", code, stderr)
+		}
+		if got := strings.TrimSpace(runGit(t, repo, "rev-parse", "origin/main")); got != remoteTip {
+			t.Fatalf("expected fetched origin/main %s to match remote tip %s", got, remoteTip)
+		}
+		if got := strings.TrimSpace(runGit(t, repo, "rev-parse", "feature/fetched-default")); got != remoteTip {
+			t.Fatalf("expected new branch tip %s to match remote tip %s", got, remoteTip)
+		}
+	})
+
 	t.Run("unambiguous local master", func(t *testing.T) {
 		repo := initRepoOnBranch(t, "develop")
 		masterTip := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
@@ -134,6 +150,26 @@ func TestNewResolvesDefaultBaseSuccessCases(t *testing.T) {
 			t.Fatalf("expected new branch tip %s to match master %s", got, masterTip)
 		}
 	})
+}
+
+func TestNewFetchFailureRefusesBeforeMutation(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	runGit(t, repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git"))
+	refsBefore := snapshotRefs(t, repo)
+	worktreesBefore := snapshotWorktrees(t, repo)
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "new", "feature/fetch-failure")
+	if code == 0 {
+		t.Fatalf("expected failed fetch to prevent worktree creation")
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "git fetch origin failed") {
+		t.Fatalf("expected fetch failure diagnostic, got %q", stderr)
+	}
+	assertNoMutation(t, repo, refsBefore, worktreesBefore)
 }
 
 func TestNewRefusesAmbiguousDefaultBeforeMutation(t *testing.T) {

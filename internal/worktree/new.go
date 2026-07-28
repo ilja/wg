@@ -43,7 +43,10 @@ func (c Creator) Plan(ctx context.Context, opts NewOptions) (NewPlan, error) {
 	if err != nil {
 		return NewPlan{}, err
 	}
+	return c.plan(ctx, runner, repo, opts)
+}
 
+func (c Creator) plan(ctx context.Context, runner git.Runner, repo Repository, opts NewOptions) (NewPlan, error) {
 	defaultBranch, err := ResolveDefaultBranch(ctx, runner, repo, opts.Base)
 	if err != nil {
 		return NewPlan{}, err
@@ -78,12 +81,21 @@ func (c Creator) Create(ctx context.Context, opts NewOptions) (NewResult, error)
 		stderr = io.Discard
 	}
 
-	plan, err := c.Plan(ctx, opts)
+	runner := c.runner()
+	repo, err := LoadRepository(ctx, runner, opts.Cwd)
+	if err != nil {
+		return NewResult{}, err
+	}
+	if err := c.fetchOrigin(ctx, runner, repo, stderr); err != nil {
+		return NewResult{}, err
+	}
+
+	plan, err := c.plan(ctx, runner, repo, opts)
 	if err != nil {
 		return NewResult{}, err
 	}
 
-	result, err := c.runner().Run(ctx, plan.Repository.Primary.Path, "worktree", "add", "--no-track", "-b", plan.Branch, plan.WorktreePath, plan.Base)
+	result, err := runner.Run(ctx, plan.Repository.Primary.Path, "worktree", "add", "--no-track", "-b", plan.Branch, plan.WorktreePath, plan.Base)
 	if result.Stdout != "" {
 		_, _ = io.WriteString(stderr, result.Stdout)
 	}
@@ -109,6 +121,20 @@ func (c Creator) Create(ctx context.Context, opts NewOptions) (NewResult, error)
 
 	_, _ = fmt.Fprintln(stdout, plan.WorktreePath)
 	return NewResult{Plan: plan, Setup: setupResult}, nil
+}
+
+func (c Creator) fetchOrigin(ctx context.Context, runner git.Runner, repo Repository, stderr io.Writer) error {
+	result, err := runner.Run(ctx, repo.Primary.Path, "remote", "get-url", "origin")
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return nil
+	}
+	if err := git.RunStreaming(ctx, runner, repo.Primary.Path, stderr, stderr, "fetch", "origin"); err != nil {
+		return fmt.Errorf("git fetch origin failed: %w", err)
+	}
+	return nil
 }
 
 func (c Creator) runner() git.Runner {
