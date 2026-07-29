@@ -50,3 +50,58 @@ func TestInitFromLinkedWorktreeInstallsPrimaryHook(t *testing.T) {
 	}
 	assertCleanStatus(t, repo)
 }
+
+func TestInitRequiresForceToReplaceExistingHook(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepo(t)
+	xdg := filepath.Join(t.TempDir(), "xdg")
+	mustMkdir(t, filepath.Join(xdg, "wg"))
+	template := filepath.Join(xdg, "wg", "setup.sh")
+	mustWriteFile(t, template, "initial\n")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "init")
+	if code != 0 {
+		t.Fatalf("initial wg init exited %d, stdout: %s stderr: %s", code, stdout, stderr)
+	}
+	hook := filepath.Join(repo, ".config", "setup.sh")
+	excludePath := filepath.Join(repo, ".git", "info", "exclude")
+	excludeBefore, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteFile(t, hook, "hand edited\n")
+	mustWriteFile(t, template, "replacement\n")
+
+	stdout, stderr, code = runWGCommand(t, bin, repo, "init")
+	if code == 0 {
+		t.Fatal("expected repeated init to fail without --force")
+	}
+	if stdout != "" {
+		t.Fatalf("expected empty refusal stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "--force") {
+		t.Fatalf("expected force hint, got %q", stderr)
+	}
+	assertFileContent(t, hook, "hand edited\n")
+	excludeAfter, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(excludeAfter) != string(excludeBefore) {
+		t.Fatalf("exclude changed on refusal: before %q, after %q", excludeBefore, excludeAfter)
+	}
+
+	stdout, stderr, code = runWGCommand(t, bin, repo, "init", "--force")
+	if code != 0 {
+		t.Fatalf("forced wg init exited %d, stderr: %s", code, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("expected empty forced stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, hook) || !strings.Contains(stdout, "Tailor it") {
+		t.Fatalf("expected forced replacement guidance, got %q", stdout)
+	}
+	assertFileContent(t, hook, "replacement\n")
+	assertCleanStatus(t, repo)
+}

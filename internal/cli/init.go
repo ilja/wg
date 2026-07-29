@@ -7,11 +7,13 @@ import (
 	"wg/internal/app"
 )
 
-type InitCmd struct{}
+type InitCmd struct {
+	Force bool `help:"Replace an existing regular setup hook."`
+}
 
 func (c *InitCmd) Run(rt *runtime) error {
 	application := app.App{Cwd: rt.cwd, Environ: rt.environ, GitRunner: rt.gitRunner}
-	result, err := application.Init(rt.ctx, app.InitOptions{})
+	result, err := application.Init(rt.ctx, app.InitOptions{Force: c.Force})
 	if err != nil {
 		return err
 	}

@@ -26,8 +26,14 @@ func Install(sourcePath, destinationPath string, force bool) error {
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("create setup directory %q: %w", parent, err)
 	}
-	if _, err := os.Lstat(destinationPath); err == nil {
-		return fmt.Errorf("setup hook %q already exists", destinationPath)
+	destinationInfo, err := os.Lstat(destinationPath)
+	if err == nil {
+		if !destinationInfo.Mode().IsRegular() {
+			return fmt.Errorf("setup hook %q is not a regular file", destinationPath)
+		}
+		if !force {
+			return fmt.Errorf("setup hook %q already exists; rerun with --force to replace it", destinationPath)
+		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect setup hook %q: %w", destinationPath, err)
 	}
@@ -50,8 +56,17 @@ func Install(sourcePath, destinationPath string, force bool) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close temporary setup hook: %w", err)
 	}
-	if err := os.Rename(temporaryPath, destinationPath); err != nil {
+	if force {
+		if err := os.Rename(temporaryPath, destinationPath); err != nil {
+			return fmt.Errorf("replace setup hook %q: %w", destinationPath, err)
+		}
+		return nil
+	}
+	if err := os.Link(temporaryPath, destinationPath); err != nil {
 		return fmt.Errorf("install setup hook %q: %w", destinationPath, err)
+	}
+	if err := os.Remove(temporaryPath); err != nil {
+		return fmt.Errorf("remove temporary setup hook %q: %w", temporaryPath, err)
 	}
 	return nil
 }

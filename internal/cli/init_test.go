@@ -61,6 +61,60 @@ func TestInitCommandPrintsGuidance(t *testing.T) {
 	}
 }
 
+func TestInitCommandRequiresForceToReplaceHook(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(primary, ".git", "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	away := filepath.Join(root, "xdg")
+	if err := os.MkdirAll(filepath.Join(away, "wg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(away, "wg", "setup.sh"), []byte("replacement\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(primary, ".config", "setup.sh")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("existing\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	options := Options{Cwd: primary, Environ: []string{"XDG_CONFIG_HOME=" + away}, GitRunner: initCLIRunner{primary: primary}}
+
+	var stdout, stderr bytes.Buffer
+	options.Stdout, options.Stderr = &stdout, &stderr
+	if code := Run(context.Background(), []string{"init"}, options); code != 1 {
+		t.Fatalf("expected refusal code 1, got %d", code)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected empty failure stdout, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "--force") {
+		t.Fatalf("expected force hint on stderr, got %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(context.Background(), []string{"init", "--force"}, options); code != 0 {
+		t.Fatalf("expected forced success, code=%d stderr=%q", code, stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty success stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), hook) || !strings.Contains(stdout.String(), "Tailor it") {
+		t.Fatalf("expected replacement guidance, got %q", stdout.String())
+	}
+	content, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "replacement\n" {
+		t.Fatalf("unexpected hook content %q", content)
+	}
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }

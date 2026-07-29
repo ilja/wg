@@ -79,3 +79,80 @@ func TestInitTargetsPrimaryAfterRepositoryDiscovery(t *testing.T) {
 		t.Fatalf("unexpected exclude content %q", exclude)
 	}
 }
+
+func TestInitRefusesExistingHookBeforeExcludeLookup(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "primary")
+	templateRoot := filepath.Join(root, "xdg")
+	if err := os.MkdirAll(filepath.Join(templateRoot, "wg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateRoot, "wg", "setup.sh"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(primary, ".config", "setup.sh")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("existing\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := &initGitRunner{current: primary, primary: primary}
+
+	_, err := (&App{Cwd: primary, Environ: []string{"XDG_CONFIG_HOME=" + templateRoot}, GitRunner: runner}).Init(context.Background(), InitOptions{})
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected force hint, got %v", err)
+	}
+	if got, want := len(runner.calls), 2; got != want {
+		t.Fatalf("Git call count: want %d, got %d", want, got)
+	}
+	content, readErr := os.ReadFile(hook)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(content) != "existing\n" {
+		t.Fatalf("existing hook changed: %q", content)
+	}
+}
+
+func TestInitForceReplacesPrimaryHook(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "primary")
+	current := filepath.Join(root, "linked")
+	if err := os.MkdirAll(filepath.Join(primary, ".git", "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	templateRoot := filepath.Join(root, "xdg")
+	if err := os.MkdirAll(filepath.Join(templateRoot, "wg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateRoot, "wg", "setup.sh"), []byte("replacement\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(primary, ".config", "setup.sh")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("existing\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := &initGitRunner{current: current, primary: primary}
+
+	result, err := (&App{Cwd: current, Environ: []string{"XDG_CONFIG_HOME=" + templateRoot}, GitRunner: runner}).Init(context.Background(), InitOptions{Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HookPath != hook {
+		t.Fatalf("want hook %q, got %q", hook, result.HookPath)
+	}
+	content, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "replacement\n" {
+		t.Fatalf("unexpected hook content %q", content)
+	}
+	if runner.calls[2].dir != primary {
+		t.Fatalf("exclude lookup ran in %q, want %q", runner.calls[2].dir, primary)
+	}
+}
