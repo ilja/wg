@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+# Copy only the ignored files selected by the repository's .worktreeinclude.
+wg copy-ignored --from "$WG_PRIMARY_WORKTREE_PATH" --to "$WG_WORKTREE_PATH"
+
+# Install tools declared by the repository. Add project-specific dependency
+# commands here, such as "mise exec -- npm install" or "mise exec -- bundle install".
+if command -v mise >/dev/null 2>&1; then
+	mise install
+fi
+
+# Generate worktree-local environment values. Adapt the names for the project.
+umask 077
+cat >.env.local <<EOF
+APP_PORT=$WG_PORT
+APP_URL=http://127.0.0.1:$WG_PORT
+EOF
+
+# Link resources shared with the primary worktree when they exist. Adjust this
+# list to match the repository, and leave existing destinations untouched.
+for resource in .plans .wiki; do
+	source_path=$WG_PRIMARY_WORKTREE_PATH/$resource
+	if [ -e "$source_path" ] && [ ! -e "$resource" ] && [ ! -L "$resource" ]; then
+		ln -s "$source_path" "$resource"
+	fi
+done
+
+# Set this to 1 when the repository's tracked .envrc sources .envrc.local.
+enable_direnv=0
+if [ "$enable_direnv" = 1 ]; then
+	cat >.envrc.local <<'EOF'
+dotenv_if_exists .env.local
+EOF
+
+	if command -v direnv >/dev/null 2>&1; then
+		direnv allow
+	fi
+fi

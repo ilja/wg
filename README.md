@@ -43,6 +43,7 @@ When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your 
 - `wg list [--json]` — list known worktrees with the current worktree marked.
 - `wg switch [name]` — select a worktree; with zsh integration this changes the parent shell directory.
 - `wg path <name>` — print exactly the resolved worktree path.
+- `wg init [--force]` — install the reusable setup template for this clone.
 - `wg new <branch> [base]` — fetch `origin` when configured, then create a sibling worktree and branch from an explicit or resolved default base.
 - `wg rebase [base]` — fetch the base when available and run native `git rebase` in the current worktree.
 - `wg copy-ignored --from <name> --to <name>` — copy allowlisted ignored local files.
@@ -85,6 +86,50 @@ source ~/.zshrc
 
 `wg new` looks for `.config/setup.sh` in the primary worktree. When present, it runs that script with the new worktree as the current directory. This keeps project-specific setup in the repository instead of baking it into `wg`.
 
+### Initialize a hook from a reusable template
+
+`wg init` installs a user-managed template as the primary worktree's `.config/setup.sh`. It resolves the template from:
+
+1. `$XDG_CONFIG_HOME/wg/setup.sh` when `XDG_CONFIG_HOME` is a non-empty absolute path.
+2. `$HOME/.config/wg/setup.sh` when `XDG_CONFIG_HOME` is empty or unset.
+
+Create that reusable template before initializing a repository. The repository's [setup.sh.example](setup.sh.example) is a substantial starting point; adapt its dependency commands, environment files, shared resources, and optional tools for your projects. For example, from this source checkout:
+
+```sh
+template_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wg"
+mkdir -p "$template_dir"
+cp setup.sh.example "$template_dir/setup.sh"
+${EDITOR:-vi} "$template_dir/setup.sh"
+```
+
+The `wg` executable does not embed or install `setup.sh.example`. Initialization copies only the template at the resolved user configuration path and treats its contents as opaque.
+
+From any directory in a primary or linked worktree, initialize the clone:
+
+```sh
+wg init
+```
+
+The command always targets the primary worktree, creates its `.config` directory when needed, copies the template bytes, and grants the installed hook owner-execute permission. It also adds the exact `/.config/` pattern to Git's clone-local `info/exclude`, keeping the hook and other local configuration out of `git status` without changing the tracked `.gitignore`.
+
+An existing `.config/setup.sh` is never overwritten by default. Use `wg init --force` to explicitly replace an existing regular file. Directories, symbolic links, and other non-regular destinations are refused even with `--force`.
+
+Every successful initialization prints the absolute hook path and reminds you to tailor it before running `wg new`:
+
+- Configure `.worktreeinclude` and use `wg copy-ignored` for eligible ignored files.
+- Create or update local environment files such as `.env`, `.env.local`, or `.envrc`.
+- Install project dependencies, optionally through a tool such as `mise`.
+- Symlink resources shared with the primary worktree.
+- Enable environment tooling such as `direnv`.
+
+After tailoring the installed hook, create a worktree normally:
+
+```sh
+wg new feature/add-search main
+```
+
+`wg new` executes the primary worktree's hook inside the new worktree with the setup values below.
+
 The setup script receives these values:
 
 | Variable                   | Example                                      | Meaning                                           |
@@ -97,17 +142,3 @@ The setup script receives these values:
 | `WG_DEFAULT_BRANCH`        | `main`                                       | Resolved default branch.                          |
 | `WG_BASE`                  | `main`                                       | Base passed or resolved for `wg new`.             |
 | `WG_PORT`                  | `14832`                                      | Stable port derived from the worktree path.       |
-
-Example setup script:
-
-```sh
-#!/bin/sh
-set -eu
-
-wg copy-ignored --from main --to "$WG_WORKTREE_NAME"
-direnv allow || true
-export PORT="$WG_PORT"
-export PUMA_METRICS_PORT="$((WG_PORT + 1))"
-ln -sfn /path/to/shared/plans "$WG_WORKTREE_PATH/.plans"
-ln -sfn /path/to/shared/wiki "$WG_WORKTREE_PATH/.wiki"
-```
