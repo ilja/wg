@@ -11,7 +11,7 @@ func TestHelpShowsScopedFirstVersionSurface(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("wg --help exited %d, stderr: %s", code, stderr)
 	}
-	for _, want := range []string{"list", "switch", "path", "new", "rebase", "copy-ignored", "env", "remove"} {
+	for _, want := range []string{"list", "switch", "path", "new", "init", "rebase", "copy-ignored", "env", "remove"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected wg --help to mention %q, got %q", want, stdout)
 		}

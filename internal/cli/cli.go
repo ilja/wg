@@ -40,6 +40,7 @@ type rootCmd struct {
 	Env         envCmd         `cmd:"" help:"Print worktree environment context."`
 	Switch      SwitchCmd      `cmd:"" help:"Select a worktree."`
 	New         NewCmd         `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
+	Init        InitCmd        `cmd:"" help:"Initialize the primary worktree setup hook from a reusable template."`
 	Rebase      RebaseCmd      `cmd:"" help:"Fetch and rebase the current worktree onto a base."`
 	CopyIgnored CopyIgnoredCmd `cmd:"" name:"copy-ignored" help:"Copy allowlisted ignored files between worktrees."`
 	Remove      RemoveCmd      `cmd:"" help:"Safely remove one integrated non-primary worktree."`
