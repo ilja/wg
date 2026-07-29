@@ -191,7 +191,7 @@ func runWGCommandWithEnv(t *testing.T, bin, dir string, env []string, args ...st
 	t.Helper()
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = replaceEnvironment(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

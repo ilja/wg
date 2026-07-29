@@ -47,7 +47,7 @@ func (a *App) Init(ctx context.Context, opts InitOptions) (InitResult, error) {
 		excludePath = filepath.Join(repo.Primary.Path, excludePath)
 	}
 	if err := initsetup.EnsureExclude(excludePath, "/.config/"); err != nil {
-		return InitResult{}, err
+		return InitResult{}, fmt.Errorf("update repository Git exclude %q: %w", excludePath, err)
 	}
 
 	return InitResult{HookPath: hookPath}, nil

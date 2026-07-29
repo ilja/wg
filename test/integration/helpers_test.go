@@ -66,6 +66,36 @@ func gitStatusShort(t *testing.T, repo string) string {
 	return runGit(t, repo, "status", "--short")
 }
 
+func replaceEnvironment(environ []string, replacements ...string) []string {
+	values := make(map[string]string, len(replacements))
+	for _, replacement := range replacements {
+		key, _, ok := strings.Cut(replacement, "=")
+		if ok {
+			values[key] = replacement
+		}
+	}
+
+	result := make([]string, 0, len(environ)+len(values))
+	for _, entry := range environ {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok {
+			if _, replaced := values[key]; replaced {
+				continue
+			}
+		}
+		result = append(result, entry)
+	}
+	for _, replacement := range replacements {
+		key, _, ok := strings.Cut(replacement, "=")
+		if !ok || values[key] != replacement {
+			continue
+		}
+		result = append(result, replacement)
+		delete(values, key)
+	}
+	return result
+}
+
 func assertBranchExists(t *testing.T, repo, branch string) {
 	t.Helper()
 	cmd := exec.Command("git", "show-ref", "--verify", "--quiet", "refs/heads/"+branch)

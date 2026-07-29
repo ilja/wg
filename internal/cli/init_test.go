@@ -125,3 +125,30 @@ func TestRenderInitResultPropagatesWriteError(t *testing.T) {
 		t.Fatalf("expected write error, got %v", err)
 	}
 }
+
+func TestInitCommandApplicationErrorsBypassGuidance(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "repo")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"init"}, Options{
+		Cwd:       primary,
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+		Environ:   []string{"XDG_CONFIG_HOME=" + filepath.Join(root, "missing")},
+		GitRunner: initCLIRunner{primary: primary},
+	})
+
+	if code != 1 {
+		t.Fatalf("expected failure code 1, got %d", code)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("expected empty failure stdout, got %q", stdout.String())
+	}
+	template := filepath.Join(root, "missing", "wg", "setup.sh")
+	if !strings.Contains(stderr.String(), template) {
+		t.Fatalf("expected stderr to name missing template %q, got %q", template, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "Tailor it") || strings.Contains(stderr.String(), "Initialized setup hook") {
+		t.Fatalf("successful guidance leaked to stderr: %q", stderr.String())
+	}
+}

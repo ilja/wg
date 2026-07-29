@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -157,5 +158,141 @@ func TestInstallRefusesUnsafeDestination(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestInstallFollowsSourceSymlinkToRegularFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "template-target.sh")
+	source := filepath.Join(root, "template.sh")
+	destination := filepath.Join(root, "repo", ".config", "setup.sh")
+	if err := os.WriteFile(target, []byte("linked template\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, source); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(source, destination, false); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "linked template\n" {
+		t.Fatalf("unexpected content %q", content)
+	}
+}
+
+func TestInstallRefusesNonRegularSource(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "template")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "repo", ".config", "setup.sh")
+
+	err := Install(source, destination, false)
+	if err == nil || !strings.Contains(err.Error(), source) || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("expected source type diagnostic, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Dir(destination)); !os.IsNotExist(err) {
+		t.Fatalf("destination parent should not be created, stat err: %v", err)
+	}
+}
+
+func TestInstallRefusesUnsafeDestinationParent(t *testing.T) {
+	for _, parentType := range []string{"file", "symlink"} {
+		t.Run(parentType, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "template.sh")
+			if err := os.WriteFile(source, []byte("template\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			parent := filepath.Join(root, "repo", ".config")
+			if err := os.MkdirAll(filepath.Dir(parent), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			switch parentType {
+			case "file":
+				if err := os.WriteFile(parent, []byte("not a directory\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink":
+				target := filepath.Join(root, "config-target")
+				if err := os.Mkdir(target, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, parent); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			err := Install(source, filepath.Join(parent, "setup.sh"), false)
+			if err == nil || !strings.Contains(err.Error(), parent) {
+				t.Fatalf("expected parent type diagnostic, got %v", err)
+			}
+			if parentType == "symlink" {
+				if _, err := os.Stat(filepath.Join(root, "config-target", "setup.sh")); !os.IsNotExist(err) {
+					t.Fatalf("symlink target should remain untouched, stat err: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallNoClobberUnderConcurrentPublication(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "repo", ".config", "setup.sh")
+	const contenders = 8
+	sources := make([]string, contenders)
+	for index := range sources {
+		sources[index] = filepath.Join(root, fmt.Sprintf("template-%d.sh", index))
+		if err := os.WriteFile(sources[index], []byte(fmt.Sprintf("template %d\n", index)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	start := make(chan struct{})
+	errs := make([]error, contenders)
+	var wait sync.WaitGroup
+	for index := range sources {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			<-start
+			errs[index] = Install(sources[index], destination, false)
+		}(index)
+	}
+	close(start)
+	wait.Wait()
+
+	winners := 0
+	winnerContent := ""
+	for index, err := range errs {
+		if err == nil {
+			winners++
+			winnerContent = fmt.Sprintf("template %d\n", index)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("expected one successful publisher, got %d errors=%v", winners, errs)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != winnerContent {
+		t.Fatalf("destination was clobbered: want %q, got %q", winnerContent, content)
+	}
+	entries, err := os.ReadDir(filepath.Dir(destination))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".setup.sh-") {
+			t.Fatalf("temporary file was not cleaned up: %s", entry.Name())
+		}
 	}
 }
