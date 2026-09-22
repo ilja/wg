@@ -324,9 +324,6 @@ func (c *RemoveCmd) Run(rt *runtime) error {
 			return fmt.Errorf("wg remove --all cannot be combined with a name or -D")
 		}
 		result, err := remove.New(rt.gitRunner, rt.stderr).RunAll(rt.ctx, remove.RemoveAllOptions{Cwd: rt.cwd, DryRun: c.DryRun})
-		if err != nil {
-			return err
-		}
 		for _, removed := range result.Removed {
 			action := "removed"
 			if c.DryRun {
@@ -336,6 +333,15 @@ func (c *RemoveCmd) Run(rt *runtime) error {
 		}
 		for _, skipped := range result.Skipped {
 			_, _ = fmt.Fprintf(rt.stderr, "skipped %s: %s\n", skipped.Name, skipped.Reason)
+		}
+		for _, failed := range result.Failed {
+			_, _ = fmt.Fprintf(rt.stderr, "failed %s: %s\n", failed.Name, failed.Reason)
+		}
+		if err != nil {
+			if len(result.Failed) > 0 {
+				return fmt.Errorf("wg remove --all completed with %d failed worktree(s)", len(result.Failed))
+			}
+			return err
 		}
 		return nil
 	}

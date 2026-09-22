@@ -2,6 +2,7 @@ package remove
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -36,10 +37,18 @@ type RemoveSkip struct {
 	Reason string
 }
 
+// RemoveFailure describes a worktree that bulk removal could not finish processing.
+type RemoveFailure struct {
+	Name            string
+	Reason          string
+	WorktreeRemoved bool
+}
+
 // RemoveAllResult reports removed and preserved worktrees.
 type RemoveAllResult struct {
 	Removed []Result
 	Skipped []RemoveSkip
+	Failed  []RemoveFailure
 }
 
 type Service struct {
@@ -134,11 +143,20 @@ func (s *Service) RunAll(ctx context.Context, opts RemoveAllOptions) (RemoveAllR
 	}
 	safetyTarget := s.fetchTarget(ctx, repo.Primary.Path, defaultBranch.Name)
 	result := RemoveAllResult{}
+	var removeErrors []error
 
 	for _, target := range repo.Entries {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		proof, skipReason, err := s.bulkTargetEligibility(ctx, target, repo.Primary.Path, safetyTarget)
 		if err != nil {
-			return result, err
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			result.Failed = append(result.Failed, RemoveFailure{Name: bulkTargetName(target), Reason: err.Error()})
+			removeErrors = append(removeErrors, fmt.Errorf("%s: %w", bulkTargetName(target), err))
+			continue
 		}
 		if skipReason != "" {
 			result.Skipped = append(result.Skipped, RemoveSkip{Name: bulkTargetName(target), Reason: skipReason})
@@ -151,12 +169,21 @@ func (s *Service) RunAll(ctx context.Context, opts RemoveAllOptions) (RemoveAllR
 		}
 		removed, err := s.removeIntegratedTarget(ctx, repo, target, proof)
 		if err != nil {
-			return result, err
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			result.Failed = append(result.Failed, RemoveFailure{
+				Name:            bulkTargetName(target),
+				Reason:          err.Error(),
+				WorktreeRemoved: removed.RemovedPath != "",
+			})
+			removeErrors = append(removeErrors, fmt.Errorf("%s: %w", bulkTargetName(target), err))
+			continue
 		}
 		result.Removed = append(result.Removed, removed)
 	}
 
-	return result, nil
+	return result, errors.Join(removeErrors...)
 }
 
 func (s *Service) bulkTargetEligibility(ctx context.Context, target worktree.Entry, repoPath string, safetyTarget string) (Proof, string, error) {
@@ -207,14 +234,14 @@ func (s *Service) removeIntegratedTarget(ctx context.Context, repo worktree.Repo
 		result.CdTarget = repo.Primary.Path
 	}
 	if err := git.RunStreaming(ctx, s.runner, repo.Primary.Path, s.stderr, s.stderr, "worktree", "remove", target.Path); err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("failed to remove worktree %s: %w", target.Path, err)
 	}
 	deleteFlag := "-d"
 	if proof.Method != "ancestry" {
 		deleteFlag = "-D"
 	}
 	if err := git.RunStreaming(ctx, s.runner, repo.Primary.Path, s.stderr, s.stderr, "branch", deleteFlag, target.Branch); err != nil {
-		return Result{}, err
+		return result, fmt.Errorf("removed worktree %s but failed to delete branch %s: %w", target.Path, target.Branch, err)
 	}
 	result.DeletedBranch = target.Branch
 	return result, nil

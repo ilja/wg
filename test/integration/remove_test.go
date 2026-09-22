@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,6 +36,97 @@ func TestRemoveAllDeletesIntegratedWorktreesAndSkipsUnintegratedWorktrees(t *tes
 	assertBranchMissing(t, repo, integratedBranch)
 	assertPathExists(t, unintegratedPath)
 	assertBranchExists(t, repo, unintegratedBranch)
+}
+
+func TestRemoveAllReportsFailureAndContinuesToLaterIntegratedWorktree(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	brokenBranch := "feature/remove-all-broken"
+	brokenPath := addLifecycleWorktree(t, repo, brokenBranch)
+	commitFile(t, brokenPath, "broken.txt", "broken\n", "broken feature")
+	laterBranch := "feature/remove-all-later"
+	laterPath := addLifecycleWorktree(t, repo, laterBranch)
+	commitFile(t, laterPath, "later.txt", "later\n", "later feature")
+	runGit(t, repo, "merge", "--no-ff", brokenBranch, "-m", "merge broken feature")
+	runGit(t, repo, "merge", "--no-ff", laterBranch, "-m", "merge later feature")
+	runGit(t, repo, "push", "origin", "main")
+	if err := os.RemoveAll(brokenPath); err != nil {
+		t.Fatalf("remove broken worktree directory: %v", err)
+	}
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "remove", "--all")
+	if code == 0 {
+		t.Fatalf("expected wg remove --all to report the inaccessible worktree")
+	}
+	if stdout != "" {
+		t.Fatalf("expected no stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "failed "+brokenBranch) {
+		t.Fatalf("expected broken-worktree failure report, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "removed "+laterBranch) {
+		t.Fatalf("expected later removal report, got %q", stderr)
+	}
+	assertBranchExists(t, repo, brokenBranch)
+	assertPathMissing(t, laterPath)
+	assertBranchMissing(t, repo, laterBranch)
+}
+
+func TestRemoveAllReportsWhenWorktreeRemovalSucceedsButBranchDeletionFails(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	branch := "feature/remove-all-branch-delete-failure"
+	path := addLifecycleWorktree(t, repo, branch)
+	commitFile(t, path, "remote-merged.txt", "remote merged\n", "remote-merged feature")
+	runGit(t, path, "push", "origin", branch)
+
+	remoteClone := filepath.Join(t.TempDir(), "remote-merge")
+	runGit(t, filepath.Dir(remoteClone), "clone", strings.TrimSpace(runGit(t, repo, "remote", "get-url", "origin")), remoteClone)
+	runGit(t, remoteClone, "config", "user.email", "test@example.com")
+	runGit(t, remoteClone, "config", "user.name", "Test User")
+	runGit(t, remoteClone, "merge", "--no-ff", "origin/"+branch, "-m", "merge remote feature")
+	runGit(t, remoteClone, "push", "origin", "main")
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "remove", "--all")
+	if code == 0 {
+		t.Fatalf("expected branch-deletion failure after removing the worktree")
+	}
+	if stdout != "" {
+		t.Fatalf("expected no stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "failed "+branch) || !strings.Contains(stderr, "removed worktree") || !strings.Contains(stderr, "failed to delete branch") {
+		t.Fatalf("expected partial-removal failure report, got %q", stderr)
+	}
+	assertPathMissing(t, path)
+	assertBranchExists(t, repo, branch)
+}
+
+func TestRemoveAllDeletesMultipleIntegratedWorktreesIncludingSquashEquivalent(t *testing.T) {
+	bin := buildWG(t)
+	repo := initRepoWithOrigin(t)
+	mergedBranch := "feature/remove-all-merged"
+	mergedPath := addLifecycleWorktree(t, repo, mergedBranch)
+	commitFile(t, mergedPath, "merged-all.txt", "merged\n", "merged feature")
+	squashBranch := "feature/remove-all-squash"
+	squashPath := addLifecycleWorktree(t, repo, squashBranch)
+	commitFile(t, squashPath, "squash-all.txt", "squash\n", "squash feature")
+	runGit(t, repo, "merge", "--no-ff", mergedBranch, "-m", "merge feature")
+	runGit(t, repo, "merge", "--squash", squashBranch)
+	runGit(t, repo, "commit", "-m", "squash feature")
+	runGit(t, repo, "push", "origin", "main")
+
+	stdout, stderr, code := runWGCommand(t, bin, repo, "remove", "--all")
+	if code != 0 {
+		t.Fatalf("wg remove --all exited %d, stdout: %s, stderr: %s", code, stdout, stderr)
+	}
+	for _, branch := range []string{mergedBranch, squashBranch} {
+		if !strings.Contains(stderr, "removed "+branch) {
+			t.Fatalf("expected removal report for %s, got %q", branch, stderr)
+		}
+		assertBranchMissing(t, repo, branch)
+	}
+	assertPathMissing(t, mergedPath)
+	assertPathMissing(t, squashPath)
 }
 
 func TestRemoveAllDryRunReportsWithoutRemovingIntegratedWorktree(t *testing.T) {
