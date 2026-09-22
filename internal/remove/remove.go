@@ -17,11 +17,29 @@ type Options struct {
 	Force bool
 }
 
+// RemoveAllOptions configures safe bulk worktree removal.
+type RemoveAllOptions struct {
+	Cwd    string
+	DryRun bool
+}
+
 type Result struct {
 	RemovedPath    string
 	DeletedBranch  string
 	CdTarget       string
 	RemovedCurrent bool
+}
+
+// RemoveSkip describes a worktree preserved during bulk removal.
+type RemoveSkip struct {
+	Name   string
+	Reason string
+}
+
+// RemoveAllResult reports removed and preserved worktrees.
+type RemoveAllResult struct {
+	Removed []Result
+	Skipped []RemoveSkip
 }
 
 type Service struct {
@@ -100,6 +118,94 @@ func (s *Service) Run(ctx context.Context, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("branch %s is not integrated into %s; use wg remove -D %s to force removing exactly this target", target.Branch, safetyTarget, target.DisplayName)
 	}
 
+	return s.removeIntegratedTarget(ctx, repo, target, proof)
+}
+
+// RunAll removes every clean non-primary worktree proven integrated into the default branch.
+func (s *Service) RunAll(ctx context.Context, opts RemoveAllOptions) (RemoveAllResult, error) {
+	repo, err := worktree.LoadRepository(ctx, s.runner, opts.Cwd)
+	if err != nil {
+		return RemoveAllResult{}, err
+	}
+
+	defaultBranch, err := worktree.ResolveDefaultBranch(ctx, s.runner, repo, "")
+	if err != nil {
+		return RemoveAllResult{}, err
+	}
+	safetyTarget := s.fetchTarget(ctx, repo.Primary.Path, defaultBranch.Name)
+	result := RemoveAllResult{}
+
+	for _, target := range repo.Entries {
+		proof, skipReason, err := s.bulkTargetEligibility(ctx, target, repo.Primary.Path, safetyTarget)
+		if err != nil {
+			return result, err
+		}
+		if skipReason != "" {
+			result.Skipped = append(result.Skipped, RemoveSkip{Name: bulkTargetName(target), Reason: skipReason})
+			continue
+		}
+
+		if opts.DryRun {
+			result.Removed = append(result.Removed, Result{RemovedPath: target.Path, DeletedBranch: target.Branch})
+			continue
+		}
+		removed, err := s.removeIntegratedTarget(ctx, repo, target, proof)
+		if err != nil {
+			return result, err
+		}
+		result.Removed = append(result.Removed, removed)
+	}
+
+	return result, nil
+}
+
+func (s *Service) bulkTargetEligibility(ctx context.Context, target worktree.Entry, repoPath string, safetyTarget string) (Proof, string, error) {
+	switch {
+	case target.IsPrimary:
+		return Proof{}, "primary worktree", nil
+	case target.IsCurrent:
+		return Proof{}, "current worktree", nil
+	case target.IsBare:
+		return Proof{}, "bare worktree", nil
+	case target.IsDetached || target.Branch == "":
+		return Proof{}, "detached worktree", nil
+	case target.IsLocked:
+		return Proof{}, "locked worktree", nil
+	}
+
+	status, err := s.runner.Run(ctx, target.Path, "status", "--porcelain")
+	if err != nil {
+		return Proof{}, "", err
+	}
+	if status.ExitCode != 0 {
+		return Proof{}, "", fmt.Errorf("git status --porcelain failed for %s: %s", target.DisplayName, strings.TrimSpace(status.Stderr))
+	}
+	if strings.TrimSpace(status.Stdout) != "" {
+		return Proof{}, "dirty worktree", nil
+	}
+
+	proof, integrated, err := IsIntegrated(ctx, s.runner, repoPath, target.Branch, safetyTarget)
+	if err != nil {
+		return Proof{}, "", err
+	}
+	if !integrated {
+		return Proof{}, fmt.Sprintf("branch is not integrated into %s", safetyTarget), nil
+	}
+	return proof, "", nil
+}
+
+func bulkTargetName(target worktree.Entry) string {
+	if target.Branch != "" {
+		return target.Branch
+	}
+	return target.DisplayName
+}
+
+func (s *Service) removeIntegratedTarget(ctx context.Context, repo worktree.Repository, target worktree.Entry, proof Proof) (Result, error) {
+	result := Result{RemovedPath: target.Path, RemovedCurrent: target.IsCurrent}
+	if target.IsCurrent {
+		result.CdTarget = repo.Primary.Path
+	}
 	if err := git.RunStreaming(ctx, s.runner, repo.Primary.Path, s.stderr, s.stderr, "worktree", "remove", target.Path); err != nil {
 		return Result{}, err
 	}

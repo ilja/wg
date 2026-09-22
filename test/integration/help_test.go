@@ -33,13 +33,13 @@ func TestRebaseHelpIsScoped(t *testing.T) {
 	assertOutOfScopeHelpAbsent(t, stdout)
 }
 
-func TestRemoveHelpDocumentsSingleTargetForce(t *testing.T) {
+func TestRemoveHelpDocumentsSingleTargetForceAndSafeBulkRemoval(t *testing.T) {
 	bin := buildWG(t)
 	stdout, stderr, code := runWGCommand(t, bin, t.TempDir(), "remove", "--help")
 	if code != 0 {
 		t.Fatalf("wg remove --help exited %d, stderr: %s", code, stderr)
 	}
-	for _, want := range []string{"remove", "-D", "single", "target"} {
+	for _, want := range []string{"remove", "-D", "single", "target", "--all", "--dry-run", "integrated", "clean"} {
 		if !strings.Contains(strings.ToLower(stdout), strings.ToLower(want)) {
 			t.Fatalf("expected remove help to mention %q, got %q", want, stdout)
 		}

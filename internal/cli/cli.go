@@ -43,7 +43,7 @@ type rootCmd struct {
 	Init        InitCmd        `cmd:"" help:"Initialize the primary worktree setup hook from a reusable template."`
 	Rebase      RebaseCmd      `cmd:"" help:"Fetch and rebase the current worktree onto a base."`
 	CopyIgnored CopyIgnoredCmd `cmd:"" name:"copy-ignored" help:"Copy allowlisted ignored files between worktrees."`
-	Remove      RemoveCmd      `cmd:"" help:"Safely remove one integrated non-primary worktree."`
+	Remove      RemoveCmd      `cmd:"" help:"Safely remove integrated non-primary worktrees."`
 	Config      ConfigCmd      `cmd:"" help:"Print configuration helpers."`
 }
 
@@ -76,6 +76,8 @@ type RebaseCmd struct {
 type RemoveCmd struct {
 	Name          string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix. Defaults to the current worktree."`
 	Force         bool   `short:"D" help:"Force removal of exactly one single named non-primary target."`
+	All           bool   `name:"all" help:"Remove every integrated, clean, non-primary worktree."`
+	DryRun        bool   `name:"dry-run" help:"Show what --all would remove without removing worktrees."`
 	PrintCdTarget bool   `name:"print-cd-target" hidden:"" help:"Print the primary path when removing the current worktree."`
 }
 
@@ -317,6 +319,29 @@ func (c *RebaseCmd) Run(rt *runtime) error {
 }
 
 func (c *RemoveCmd) Run(rt *runtime) error {
+	if c.All {
+		if c.Name != "" || c.Force {
+			return fmt.Errorf("wg remove --all cannot be combined with a name or -D")
+		}
+		result, err := remove.New(rt.gitRunner, rt.stderr).RunAll(rt.ctx, remove.RemoveAllOptions{Cwd: rt.cwd, DryRun: c.DryRun})
+		if err != nil {
+			return err
+		}
+		for _, removed := range result.Removed {
+			action := "removed"
+			if c.DryRun {
+				action = "would remove"
+			}
+			_, _ = fmt.Fprintf(rt.stderr, "%s %s (%s)\n", action, removed.DeletedBranch, removed.RemovedPath)
+		}
+		for _, skipped := range result.Skipped {
+			_, _ = fmt.Fprintf(rt.stderr, "skipped %s: %s\n", skipped.Name, skipped.Reason)
+		}
+		return nil
+	}
+	if c.DryRun {
+		return fmt.Errorf("wg remove --dry-run requires --all")
+	}
 	service := remove.New(rt.gitRunner, rt.stderr)
 	result, err := service.Run(rt.ctx, remove.Options{Cwd: rt.cwd, Name: c.Name, Force: c.Force})
 	if err != nil {
