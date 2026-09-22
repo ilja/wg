@@ -338,6 +338,9 @@ func (c *RemoveCmd) Run(rt *runtime) error {
 			_, _ = fmt.Fprintf(rt.stderr, "failed %s: %s\n", failed.Name, failed.Reason)
 		}
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			if len(result.Failed) > 0 {
 				return fmt.Errorf("wg remove --all completed with %d failed worktree(s)", len(result.Failed))
 			}

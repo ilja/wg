@@ -169,14 +169,14 @@ func (s *Service) RunAll(ctx context.Context, opts RemoveAllOptions) (RemoveAllR
 		}
 		removed, err := s.removeIntegratedTarget(ctx, repo, target, proof)
 		if err != nil {
-			if ctx.Err() != nil {
-				return result, ctx.Err()
-			}
 			result.Failed = append(result.Failed, RemoveFailure{
 				Name:            bulkTargetName(target),
 				Reason:          err.Error(),
 				WorktreeRemoved: removed.RemovedPath != "",
 			})
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
 			removeErrors = append(removeErrors, fmt.Errorf("%s: %w", bulkTargetName(target), err))
 			continue
 		}
