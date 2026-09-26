@@ -49,6 +49,9 @@ When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your 
 - `wg copy-ignored --from <name> --to <name>` — copy allowlisted ignored local files.
 - `wg env [name]` — print deterministic `WG_*` setup context values.
 - `wg remove [-D] [name]` — remove one non-primary worktree when it is proven integrated, or force-remove one named target with `-D`.
+- `wg remove --all [--dry-run]` — remove clean, integrated non-primary worktrees in one pass, or preview the removals with `--dry-run`.
+
+`wg remove --all` preserves the primary and current worktrees, along with worktrees that are dirty, locked, detached, bare, or whose branches are not integrated into the default branch. It reports each preserved worktree and its reason. The `--all` option cannot be combined with a name or `-D`.
 
 ## Shell setup
 
