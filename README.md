@@ -65,6 +65,27 @@ wg remove feature/add-search
 
 With zsh integration, removing the current worktree returns your shell to the primary worktree. See [Project setup](#project-setup) to automate dependency installation and local environment setup.
 
+### Integrate `wg` with a coding agent
+
+Give your coding agent this prompt to add native worktree support using `wg`:
+
+```text
+Set up Git worktree support for my coding agent using `wg`.
+
+First inspect the agent’s extension or plugin system and current project instructions. Find how it can create a worktree and switch its active session into that directory.
+
+Build the smallest integration that:
+- Creates worktrees with `wg new <branch> [base]`.
+- Runs `.config/setup.sh` through `wg new`, if present.
+- Switches the agent session into the new worktree.
+- Provides a way to return to the original worktree and remove the created worktree with `wg remove -D`.
+- Handles errors without losing the original session directory.
+
+Add concise instructions for using the integration. Include the `wg` command reference and note that `wg copy-ignored` is needed to copy ignored files; `wg new` does not copy them automatically.
+
+Follow the agent’s native extension conventions. Do not change global configuration or install dependencies without asking. Report the files changed and how to enable the integration.
+```
+
 ## Commands
 
 | Command | Purpose |
