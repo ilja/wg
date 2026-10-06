@@ -1,6 +1,6 @@
 # wg
 
-`wg` is a small Git worktree manager that keeps native Git as the source of truth. Its first version is intentionally focused on the commands needed to create, inspect, enter, update, copy local ignored files between, and safely remove worktrees.
+`wg` manages Git worktrees with project setup hooks, shell switching, and safe cleanup. Native Git remains the source of truth.
 
 ## Installation
 
@@ -38,22 +38,61 @@ go install ./cmd/wg
 
 When using `go install`, make sure `$(go env GOPATH)/bin` or `GOBIN` is on your `PATH`.
 
+## Quick start
+
+After installing `wg`, enable zsh integration in `~/.zshrc` after `compinit`:
+
+```zsh
+autoload -Uz compinit
+compinit
+
+eval "$(wg config shell init zsh)"
+```
+
+Reload your shell, then create a worktree and enter it:
+
+```sh
+source ~/.zshrc
+wg new feature/add-search main
+wg switch feature/add-search
+```
+
+Replace `main` with your repository's base branch, or omit it to use the resolved default. Once your branch is integrated, remove the worktree:
+
+```sh
+wg remove feature/add-search
+```
+
+With zsh integration, removing the current worktree returns your shell to the primary worktree. See [Project setup](#project-setup) to automate dependency installation and local environment setup.
+
 ## Commands
 
-- `wg list [--json]` — list known worktrees with the current worktree marked.
-- `wg switch [name]` — select a worktree; with zsh integration this changes the parent shell directory.
-- `wg path <name>` — print exactly the resolved worktree path.
-- `wg init [--force]` — install the reusable setup template for this clone.
-- `wg new <branch> [base]` — fetch `origin` when configured, then create a sibling worktree and branch from an explicit or resolved default base.
-- `wg rebase [base]` — fetch the base when available and run native `git rebase` in the current worktree.
-- `wg copy-ignored --from <name> --to <name>` — copy allowlisted ignored local files.
-- `wg env [name]` — print deterministic `WG_*` setup context values.
-- `wg remove [-D] [name]` — remove one non-primary worktree when it is proven integrated, or force-remove one named target with `-D`.
-- `wg remove --all [--dry-run]` — remove clean, integrated non-primary worktrees in one pass, or preview the removals with `--dry-run`.
+| Command | Purpose |
+| --- | --- |
+| `wg list [--json]` | List worktrees, marking the current one. |
+| `wg switch [name]` | Select a worktree; zsh integration changes your shell directory. |
+| `wg path <name>` | Print exactly the resolved worktree path. |
+| `wg init [--force]` | Install your reusable setup template for this clone. |
+| `wg new <branch> [base]` | Fetch `origin` when configured, then create a sibling worktree and branch from the explicit or resolved default base. |
+| `wg rebase [base]` | Fetch the base when available and run native `git rebase` in the current worktree. |
+| `wg copy-ignored --from <name> --to <name>` | Copy allowlisted ignored local files. |
+| `wg env [name]` | Print deterministic `WG_*` setup context values. |
+| `wg remove [-D] [name]` | Remove an integrated non-primary worktree, or force-remove a named target with `-D`. |
+| `wg remove --all [--dry-run]` | Remove clean, integrated non-primary worktrees, or preview removals. |
 
-`wg remove --all` preserves the primary and current worktrees, along with worktrees that are dirty, locked, detached, bare, or whose branches are not integrated into the default branch. It reports each preserved worktree and its reason. The `--all` option cannot be combined with a name or `-D`.
+### Removing worktrees
 
-## Shell setup
+`wg remove` normally requires a non-primary worktree whose branch is proven integrated. Use `-D` only when you intend to force-remove a named target.
+
+`wg remove --all` preserves the primary and current worktrees, along with worktrees that are dirty, locked, detached, bare, or whose branches are not integrated into the default branch. It reports each preserved worktree and its reason. Preview removals with:
+
+```sh
+wg remove --all --dry-run
+```
+
+The `--all` option cannot be combined with a name or `-D`.
+
+## Shell integration
 
 For zsh parent-shell directory changes and `wg remove` branch completion, initialize the function in your shell startup after `compinit`:
 
@@ -65,6 +104,8 @@ eval "$(wg config shell init zsh)"
 ```
 
 The zsh wrapper intercepts `wg switch` and `wg remove`. Successful `wg switch` changes the caller directory to the selected worktree. Successful removal of the current worktree changes the caller directory back to the primary worktree.
+
+### Optional completion settings
 
 The same zsh setup registers completion for the branch argument to `wg remove`:
 
@@ -85,9 +126,28 @@ After changing `~/.zshrc`, reload the shell:
 source ~/.zshrc
 ```
 
-## Project setup hook
+## Project setup
 
-`wg new` looks for `.config/setup.sh` in the primary worktree. When present, it runs that script with the new worktree as the current directory. This keeps project-specific setup in the repository instead of baking it into `wg`.
+`wg new` looks for `.config/setup.sh` in the primary worktree. When present, it runs that script with the new worktree as the current directory.
+
+### A simple setup hook
+
+Create `.config/setup.sh` in your primary worktree with the commands your project needs. For example, a Go project could use:
+
+```sh
+#!/bin/sh
+set -eu
+
+go mod download
+```
+
+Make the hook executable:
+
+```sh
+chmod u+x .config/setup.sh
+```
+
+Then run `wg new` normally. Use the environment variables below to find the primary worktree, copy local files, or configure a worktree-specific port. To keep the hook local to this clone, add `/.config/` to Git's clone-local `info/exclude`, or use `wg init` as described below.
 
 ### Initialize a hook from a reusable template
 
@@ -115,7 +175,7 @@ wg init
 
 The command always targets the primary worktree, creates its `.config` directory when needed, copies the template bytes, and grants the installed hook owner-execute permission. It also adds the exact `/.config/` pattern to Git's clone-local `info/exclude`, keeping the hook and other local configuration out of `git status` without changing the tracked `.gitignore`.
 
-An existing `.config/setup.sh` is never overwritten by default. Use `wg init --force` to explicitly replace an existing regular file. Directories, symbolic links, and other non-regular destinations are refused even with `--force`.
+`wg init` never overwrites an existing `.config/setup.sh` by default. `wg init --force` can replace an existing regular file, but refuses directories, symbolic links, and other non-regular destinations.
 
 Every successful initialization prints the absolute hook path and reminds you to tailor it before running `wg new`:
 
@@ -132,6 +192,8 @@ wg new feature/add-search main
 ```
 
 `wg new` executes the primary worktree's hook inside the new worktree with the setup values below.
+
+### Environment variables
 
 The setup script receives these values:
 
