@@ -4,6 +4,15 @@ import "fmt"
 
 func ZshInit(binaryName string) string {
 	return fmt.Sprintf(`wg() {
+  local wg_arg
+  for wg_arg in "$@"; do
+    [[ "$wg_arg" == "--" ]] && break
+    if [[ "$wg_arg" == "-h" || "$wg_arg" == "--help" ]]; then
+      command %s "$@"
+      return $?
+    fi
+  done
+
   if [[ "$1" == "switch" ]]; then
     shift
     local wg_switch_path
@@ -71,5 +80,5 @@ _wg() {
 if (( $+functions[compdef] )); then
   compdef _wg wg
 fi
-`, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, binaryName, binaryName, binaryName, binaryName)
 }

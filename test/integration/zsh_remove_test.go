@@ -7,6 +7,36 @@ import (
 	"testing"
 )
 
+func TestZshRemoveHelpPreservesDirectory(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh is unavailable")
+	}
+
+	bin := buildWG(t)
+	repo := initRepo(t)
+	for _, flag := range []string{"--help", "-h"} {
+		t.Run(flag, func(t *testing.T) {
+			stdout, stderr, code := runZsh(t, bin, fmt.Sprintf(`
+eval "$(wg config shell init zsh)"
+builtin cd -- %q
+wg remove %s
+status_code=$?
+printf '\nSTATUS=%%s\nPWD=%%s\n' "$status_code" "$PWD"
+exit "$status_code"
+`, repo, flag))
+			if code != 0 || stderr != "" {
+				t.Fatalf("help exited %d, stdout: %s, stderr: %s", code, stdout, stderr)
+			}
+			if !strings.Contains(stdout, "Usage: wg remove") {
+				t.Fatalf("expected remove help, got %q", stdout)
+			}
+			if !strings.HasSuffix(stdout, "STATUS=0\nPWD="+repo+"\n") {
+				t.Fatalf("expected successful help without changing directory, got %q", stdout)
+			}
+		})
+	}
+}
+
 func TestZshRemoveCurrentWorktreeFallsBackToPrimary(t *testing.T) {
 	if _, err := exec.LookPath("zsh"); err != nil {
 		t.Skip("zsh is unavailable")
