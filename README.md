@@ -98,6 +98,7 @@ Follow the agent’s native extension conventions. Do not change global configur
 | `wg rebase [base]` | Fetch the base when available and run native `git rebase` in the current worktree. |
 | `wg copy-ignored --from <name> --to <name>` | Copy allowlisted ignored local files. |
 | `wg env [name]` | Print deterministic `WG_*` setup context values. |
+| `wg setup [name]` | Run the primary worktree setup script in an existing worktree. |
 | `wg remove [-D] [name]` | Remove an integrated non-primary worktree, or force-remove a named target with `-D`. |
 | `wg remove --all [--dry-run]` | Remove clean, integrated non-primary worktrees, or preview removals. |
 
@@ -150,6 +151,16 @@ source ~/.zshrc
 ## Project setup
 
 `wg new` looks for `.config/setup.sh` in the primary worktree. When present, it runs that script with the new worktree as the current directory.
+
+To set up a worktree created with Git, run `wg setup` from that worktree, or run `wg setup <name>` from another worktree in the repository:
+
+```sh
+git worktree add -b feature/example ../demo-feature main
+cd ../demo-feature
+wg setup
+```
+
+`wg setup` runs the primary worktree's script in the selected worktree. It supplies the same `WG_*` values as `wg env`; `WG_BASE` is empty because the creation base is not recorded. It fails if the script is missing or fails.
 
 ### A simple setup hook
 

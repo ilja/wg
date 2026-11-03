@@ -37,6 +37,7 @@ type Options struct {
 type rootCmd struct {
 	List        listCmd        `cmd:"" help:"List worktrees."`
 	Path        pathCmd        `cmd:"" help:"Print a worktree path."`
+	Setup       setupCmd       `cmd:"" help:"Run the setup hook for an existing worktree."`
 	Env         envCmd         `cmd:"" help:"Print worktree environment context."`
 	Switch      SwitchCmd      `cmd:"" help:"Select a worktree."`
 	New         NewCmd         `cmd:"" help:"Create a new branch/worktree from an explicit or resolved base. Usage: wg new <branch> [base]."`
@@ -56,6 +57,10 @@ type pathCmd struct {
 }
 
 type envCmd struct {
+	Name string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix."`
+}
+
+type setupCmd struct {
 	Name string `arg:"" optional:"" name:"name" help:"Optional worktree name, branch, basename, or unique prefix."`
 }
 
@@ -271,6 +276,43 @@ func (c *envCmd) Run(rt *runtime) error {
 
 	for _, line := range wgenv.Render(wgenv.BuildContext(repo, target, defaultBranch.Name, "")) {
 		_, _ = fmt.Fprintln(rt.stdout, line)
+	}
+	return nil
+}
+
+func (c *setupCmd) Run(rt *runtime) error {
+	repo, err := rt.loadRepository()
+	if err != nil {
+		return err
+	}
+	var target worktree.Entry
+	if c.Name == "" {
+		var ok bool
+		target, ok = currentEntry(repo.Entries)
+		if !ok {
+			return fmt.Errorf("current worktree %q not found in git worktree list", repo.CurrentRoot)
+		}
+	} else {
+		target, err = resolve.Resolve(repo.Entries, c.Name)
+		if err != nil {
+			return err
+		}
+	}
+	defaultBranch, err := worktree.ResolveDefaultBranch(rt.ctx, rt.gitRunner, repo, "")
+	if err != nil {
+		return err
+	}
+	values := wgenv.BuildContext(repo, target, defaultBranch.Name, "")
+	result, err := worktree.RunSetup(rt.ctx, worktree.SetupContext{
+		Branch: values.Branch, WorktreePath: values.WorktreePath, WorktreeName: values.WorktreeName,
+		Repo: values.Repo, PrimaryWorktreePath: values.PrimaryWorktreePath,
+		DefaultBranch: values.DefaultBranch, Base: values.Base, Port: values.Port, BaseEnv: rt.environ,
+	}, rt.stderr)
+	if err != nil {
+		return err
+	}
+	if !result.Ran {
+		return fmt.Errorf("no .config/setup.sh found; project setup was not run")
 	}
 	return nil
 }
